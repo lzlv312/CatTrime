@@ -4,6 +4,9 @@
  */
 @file:Suppress("UnstableApiUsage")
 
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 plugins {
     id("com.osfans.trime.app-convention")
     id("com.osfans.trime.native-app-convention")
@@ -22,10 +25,10 @@ android {
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
-        applicationId = "com.osfans.trime"
+        applicationId = "com.osfans.trime.beta"
         minSdk = 21
-        targetSdk = 36
-        versionCode = 20260901
+        targetSdk = 35
+        versionCode = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE).toInt()
         versionName = "3.3.12"
 
         multiDexEnabled = true
@@ -64,6 +67,7 @@ android {
                         keyPassword = project.signKeyPwd
                     }
                 }
+            buildConfigField("String", "BUILD_TYPE", "\"beta\"") // 将release改为beta
 
             resValue("string", "trime_app_name", "@string/app_name_release")
         }
