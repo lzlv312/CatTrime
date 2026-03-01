@@ -95,6 +95,20 @@ Java_com_osfans_trime_core_RimeConfig_getRimeConfigListItemPath(
   return array;
 }
 
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_osfans_trime_core_RimeConfig_getRimeConfigBool(JNIEnv* env,
+                                                        jclass /* thiz */,
+                                                        jlong peer,
+                                                        jstring key) {
+  auto api = rime_get_api();
+  int value;
+  if (!api->config_get_bool(reinterpret_cast<RimeConfig*>(peer),
+                            CString(env, key), &value)) {
+    return nullptr;
+  }
+  return env->NewObject(GlobalRef->Boolean, GlobalRef->BooleanInit, value != 0);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_osfans_trime_core_RimeConfig_setRimeConfigBool(JNIEnv* env,
                                                         jclass /* thiz */,
