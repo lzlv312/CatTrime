@@ -20,7 +20,6 @@ import androidx.lifecycle.lifecycleScope
 import com.osfans.trime.core.CompositionProto
 import com.osfans.trime.core.RimeMessage
 import com.osfans.trime.daemon.RimeSession
-import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.ColorManager
 import com.osfans.trime.data.theme.Theme
 import com.osfans.trime.ime.bar.InputBarDelegate
@@ -100,7 +99,7 @@ class InputView(
     private val keyboardWindow: KeyboardWindow by di.instance()
     private val liquidWindow: LiquidWindow by di.instance()
 
-    private val candidatesMode by AppPrefs.defaultInstance().candidates.mode
+    private val effectiveWindowMode get() = service.inputDeviceManager.effectiveWindowMode
 
     private val keyboardSidePadding = theme.generalStyle.keyboardPadding
     private val keyboardSidePaddingLandscape = theme.generalStyle.keyboardPaddingLand
@@ -288,6 +287,10 @@ class InputView(
         enterKeyDisplay.updateLabelOnEditorInfo(info)
     }
 
+    fun updateInputBarVisibility() {
+        inputBar.updateVisibility()
+    }
+
     override fun handleRimeMessage(it: RimeMessage<*>) {
         when (it) {
             is RimeMessage.SchemaMessage -> {
@@ -307,7 +310,7 @@ class InputView(
                 }
             }
             is RimeMessage.CompositionMessage -> {
-                val data = if (candidatesMode == PopupCandidatesMode.ALWAYS_SHOW) {
+                val data = if (effectiveWindowMode == PopupCandidatesMode.ALWAYS_SHOW) {
                     CompositionProto()
                 } else {
                     it.data
@@ -318,7 +321,7 @@ class InputView(
                 broadcaster.onCandidateMenuUpdate(it.data)
             }
             is RimeMessage.CandidateListMessage -> {
-                val data = if (candidatesMode == PopupCandidatesMode.ALWAYS_SHOW) {
+                val data = if (effectiveWindowMode == PopupCandidatesMode.ALWAYS_SHOW) {
                     RimeMessage.CandidateListMessage.Data()
                 } else {
                     it.data
