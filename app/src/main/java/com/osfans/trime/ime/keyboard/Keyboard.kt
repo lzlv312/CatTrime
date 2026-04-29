@@ -110,6 +110,7 @@ class Keyboard(
         (keyWidth * SEARCH_DISTANCE).pow(2).toInt() // Square it for comparison
     val isLock = selfConfig?.lock ?: false // 切換程序時記憶鍵盤
     val asciiKeyboard: String? = selfConfig?.asciiKeyboard // 英文鍵盤
+    val navbar: Boolean = selfConfig?.navbar ?: false // 是否顯示导航栏
 
     val keyboardHeight: Int =
         intArrayOf(

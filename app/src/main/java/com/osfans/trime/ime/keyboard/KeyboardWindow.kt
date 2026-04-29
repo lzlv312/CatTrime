@@ -21,6 +21,7 @@ import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.KeyActionManager
 import com.osfans.trime.data.theme.Theme
 import com.osfans.trime.data.theme.model.TextKeyboard
+import com.osfans.trime.ime.bar.InputBarDelegate
 import com.osfans.trime.ime.broadcast.EnterKeyDisplayDelegate
 import com.osfans.trime.ime.broadcast.InputBroadcastReceiver
 import com.osfans.trime.ime.core.TrimeInputMethodService
@@ -40,6 +41,7 @@ import splitties.views.dsl.core.add
 import splitties.views.dsl.core.frameLayout
 import splitties.views.dsl.core.lParams
 import splitties.views.dsl.core.matchParent
+import splitties.views.dsl.core.wrapContent
 import timber.log.Timber
 
 class KeyboardWindow :
@@ -52,6 +54,7 @@ class KeyboardWindow :
     private val commonKeyboardActionListener: CommonKeyboardActionListener by di.instance()
     private val popup: PopupDelegate by di.instance()
     private val enterKeyDisplay: EnterKeyDisplayDelegate by di.instance()
+    private val inputBarDelegate: InputBarDelegate by di.instance()
 
     private val cursorCapsMode: Int
         get() =
@@ -86,6 +89,7 @@ class KeyboardWindow :
     private var lastKeyboardId = ""
     private var lastLockKeyboardId = ""
     private var tempAsciiMode: Boolean? = null
+    private var lastNavBarKeyboardId: String? = null
     private val cachedKeyboards = mutableMapOf<String, Pair<Keyboard, KeyboardView>>()
     private val currentKeyboard: Keyboard? get() = cachedKeyboards[currentKeyboardId]?.first
     private val currentKeyboardView: KeyboardView? get() = cachedKeyboards[currentKeyboardId]?.second
@@ -207,8 +211,27 @@ class KeyboardWindow :
         view.let {
             keyboardView.apply {
                 (it.parent as? android.view.ViewGroup)?.removeView(it)
+                attachNavBar()
                 add(it, lParams(matchParent, matchParent))
             }
+        }
+    }
+
+    /**
+     * 根据当前键盘配置挂载或卸载顶部导航栏。
+     */
+    private fun attachNavBar() {
+        if (currentKeyboardId == lastNavBarKeyboardId) return
+        lastNavBarKeyboardId = currentKeyboardId
+        val config = selectKeyboardConfig(currentKeyboardId)
+        if (config?.navbar == true) {
+            inputBarDelegate.navBar.attach(
+                title = config.name,
+                onCloseClick = { service.requestHideSelf(0) },
+                onBackClick = { switchKeyboard(".previous") },
+            )
+        } else {
+            inputBarDelegate.navBar.detach()
         }
     }
 
@@ -416,9 +439,12 @@ class KeyboardWindow :
     }
 
     override fun onAttached() {
+        attachNavBar()
     }
 
     override fun onDetached() {
+        lastNavBarKeyboardId = null
+        inputBarDelegate.navBar.detach()
         currentKeyboardView?.onDetach()
     }
 }
