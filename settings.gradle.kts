@@ -8,6 +8,7 @@ pluginManagement {
         gradlePluginPortal()
         google()
         mavenCentral()
+        maven("https://androidx.dev/storage/snapshots/repository/")
     }
 }
 
@@ -17,6 +18,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven("https://jitpack.io")
+        maven("https://androidx.dev/storage/snapshots/repository/")
     }
 }
 
