@@ -939,6 +939,8 @@ preset_keys:
   one_hand_switch_1: {toggle: _one_hand_mode_1, send: SWITCH_CHARSET, states: [ 左手, 普通 ]}
   one_hand_switch_2: {toggle: _one_hand_mode_2, send: SWITCH_CHARSET, states: [ 右手, 普通 ]}
   one_hand_switch_3: {toggle: _one_hand_mode_3, send: SWITCH_CHARSET, states: [ 左手, 右手 ]}
+  # 单手键盘切换（同时使用 keyboard_padding_left/right，需自行确定左右属性）
+  one_hand_switch: {toggle: _one_hand_mode, send: SWITCH_CHARSET, states: [ 普通, 单手 ]}
   Color_switch: {label: 配色, send: PROG_RED}
   Help: {label: 說明, send: HELP}
   Info: {label: 關於, send: INFO}
