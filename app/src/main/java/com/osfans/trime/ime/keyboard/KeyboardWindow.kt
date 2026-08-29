@@ -16,6 +16,7 @@ import com.osfans.trime.R
 import com.osfans.trime.core.CompositionProto
 import com.osfans.trime.core.RimeMessage
 import com.osfans.trime.core.SchemaItem
+import com.osfans.trime.daemon.RimeDaemon
 import com.osfans.trime.daemon.RimeSession
 import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.KeyActionManager
@@ -146,6 +147,19 @@ class KeyboardWindow :
             if (context.isLandscapeMode()) keyboardPaddingLand else keyboardPadding
         }
 
+        val isOneHandMode = runCatching {
+            RimeDaemon.getFirstSessionOrNull()?.run { getRuntimeOption("_one_hand_mode") }
+        }.getOrNull() == true
+
+        fun resolvePadding(configValue: Int) = configValue.takeIf { it > 0 } ?: padding
+
+        val totalPadding = if (isOneHandMode && isPortrait) {
+            resolvePadding(theme.generalStyle.keyboardPaddingLeft) +
+                resolvePadding(theme.generalStyle.keyboardPaddingRight)
+        } else {
+            2 * padding
+        }
+
         val safeWidth = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val windowMetrics = context.windowManager.maximumWindowMetrics
             val insets = windowMetrics.windowInsets.getInsetsIgnoringVisibility(
@@ -162,7 +176,7 @@ class KeyboardWindow :
             size.x
         }
 
-        val width = safeWidth - 2 * context.dp(padding)
+        val width = safeWidth - context.dp(totalPadding)
         allowedWidth = width
         return width
     }
