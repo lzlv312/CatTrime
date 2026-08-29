@@ -9,7 +9,7 @@ on:
     tags:
       - 'v*'
 env:
-  CI_NAME: Release CI
+  CI_NAME: Beta CI # 将Release改为Beta
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -56,12 +56,36 @@ jobs:
           keyPassword=${{ secrets.KEY_PASSWORD }}
           EOF
 
+      - name: Verify Keystore
+        run: |
+          # 从Base64创建临时keystore文件
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > temp.keystore
+          # 验证并显示证书信息
+          echo "验证证书信息："
+          if keytool -list -v -keystore temp.keystore -storepass "${{ secrets.KEY_STORE_PASSWORD }}" -alias "${{ secrets.ALIAS }}" | grep -E "Alias name|Creation date|Owner|Issuer|Serial number|Valid from|Valid until"; then
+            echo "✅ 证书验证成功！"
+          else
+            echo "❌ 证书验证失败！请检查SIGNING_KEY、KEY_STORE_PASSWORD和ALIAS是否正确配置。"
+            exit 1
+          fi
+          # 清理临时文件
+          rm temp.keystore
+
       - name: Build Trime
+        env:
+          BUILD_ABI: arm64-v8a
         run: make release
 
       - name: Add JNI cache
         if: ${{ !steps.jni-cache.outputs.cache-hit }}
         run: cp -R app/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib app/prebuilt
+
+      - name: Extract latest version from CHANGELOG.md
+        id: extract_version
+        run: |
+          VERSION=$(grep -oP '\[\K\d+\.\d+\.\d+' CHANGELOG.md | head -1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📌 Detected latest version from CHANGELOG.md: $VERSION"
 
       - name: Build changelog
         id: build_changelog
@@ -69,6 +93,7 @@ jobs:
         with:
           commitMode: true
           ignorePreReleases: true
+          fromTag: v${{ steps.extract_version.outputs.version }}
           configurationJson: |
             {
               "template": "Change log from #{{FROM_TAG}} to #{{TO_TAG}}: #{{RELEASE_DIFF}}\n#{{UNCATEGORIZED}}",

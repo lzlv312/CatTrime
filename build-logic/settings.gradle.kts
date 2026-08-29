@@ -7,6 +7,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+        maven("https://androidx.dev/storage/snapshots/repository/")
     }
     versionCatalogs {
         create("libs") {

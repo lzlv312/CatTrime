@@ -175,7 +175,7 @@ class TrimeApplication : Application() {
          * This permission is requested by com.android.shell, makes it possible to start
          * deploy from `adb shell am` command:
          * ```sh
-         * adb shell am broadcast -a com.osfans.trime.action.DEPLOY
+         * adb shell am broadcast -a com.osfans.trime.beta.action.DEPLOY
          * ```
          * https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-7.0.0_r1/packages/Shell/AndroidManifest.xml#67
          *
