@@ -208,9 +208,9 @@ object ClipboardHelper :
         if (unpinned.size > limit) {
             val outdated =
                 unpinned
-                    .sortedBy { it.id }
-                    .getOrNull(unpinned.size - limit)
-            clbDao.deletedUnpinnedEarlierThan(outdated?.time ?: System.currentTimeMillis())
+                    .sortedByDescending { it.time }
+                    .drop(limit)
+            outdated.forEach { clbDao.delete(it) }
         }
     }
 }
