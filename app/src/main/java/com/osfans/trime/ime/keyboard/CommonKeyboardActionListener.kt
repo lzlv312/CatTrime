@@ -15,6 +15,7 @@ import com.osfans.trime.R
 import com.osfans.trime.core.KeyModifiers
 import com.osfans.trime.core.RimeApi
 import com.osfans.trime.core.RimeKeyEvent
+import com.osfans.trime.daemon.RimeDaemon
 import com.osfans.trime.daemon.RimeSession
 import com.osfans.trime.daemon.launchOnReady
 import com.osfans.trime.data.prefs.AppPrefs
@@ -263,6 +264,10 @@ class CommonKeyboardActionListener {
                     "SYNC_USER_DATA" -> {
                         Timber.i("try to sync rime user data via command ...")
                         rime.launchOnReady { api -> api.syncUserData() }
+                    }
+                    "RESTART_RIME" -> {
+                        Timber.i("try to restart rime server via command ...")
+                        service.lifecycleScope.launch { RimeDaemon.restartRime() }
                     }
                     "UPDATE_CONFIG" -> {
                         Timber.i("try to update rime config via command ...")
