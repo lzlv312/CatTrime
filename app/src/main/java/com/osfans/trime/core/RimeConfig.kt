@@ -31,6 +31,8 @@ class RimeConfig private constructor(
 
     fun setBool(key: String, value: Boolean) = setRimeConfigBool(peer, key, value)
 
+    fun getBool(key: String) = getRimeConfigBool(peer, key)
+
     override fun close() {
         closeRimeConfig(peer)
     }
@@ -62,6 +64,9 @@ class RimeConfig private constructor(
 
         @JvmStatic
         private external fun setRimeConfigBool(peer: Long, key: String, value: Boolean)
+
+        @JvmStatic
+        private external fun getRimeConfigBool(peer: Long, key: String): Boolean?
 
         @JvmStatic
         private external fun closeRimeConfig(peer: Long)

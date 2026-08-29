@@ -12,7 +12,9 @@ import com.osfans.trime.R
 import com.osfans.trime.TrimeApplication
 import com.osfans.trime.core.Rime
 import com.osfans.trime.core.RimeApi
+import com.osfans.trime.core.RimeConfig
 import com.osfans.trime.core.RimeLifecycle
+import com.osfans.trime.core.RimeLifecycleObserver
 import com.osfans.trime.core.RimeMessage
 import com.osfans.trime.core.lifecycleScope
 import com.osfans.trime.core.whenReady
@@ -26,8 +28,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import splitties.systemservices.notificationManager
+import timber.log.Timber
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -53,6 +58,8 @@ object RimeDaemon {
     private val sessions = mutableMapOf<String, RimeSession>()
 
     private val lock = ReentrantLock()
+
+    private val loadOptionsMutex = Mutex()
 
     private fun establish(name: String) = object : RimeSession {
         private inline fun <T> ensureEstablished(block: () -> T) = if (name in sessions) {
@@ -114,6 +121,56 @@ object RimeDaemon {
     private const val MESSAGE_ID = 2331
     private var restartId = 0
 
+    /**
+     * 缓存的save_options
+     */
+    private var cachedSaveOptions: Set<String>? = null
+
+    /**
+     * 缓存的用户配置值
+     */
+    private var cachedOptionValues: Map<String, Boolean>? = null
+
+    /**
+     * 配置是否已失效
+     */
+    private var configCacheInvalidated = true
+
+    /**
+     * 加载保存的选项
+     */
+    private suspend fun loadSavedOptions() {
+        loadOptionsMutex.withLock {
+            realRime.lifecycle.whenReady {
+                if (configCacheInvalidated) {
+                    val saveOptions = RimeConfig.openConfig("default").use {
+                        it.getList("switcher/save_options", RimeConfig::getString).toSet()
+                    }
+                    cachedSaveOptions = saveOptions
+
+                    if (saveOptions.isNotEmpty()) {
+                        val userOptionValues = mutableMapOf<String, Boolean>()
+                        RimeConfig.openUserConfig("user").use { userConfig ->
+                            for (option in saveOptions) {
+                                val savedValue = userConfig.getBool("var/option/$option")
+                                if (savedValue != null) {
+                                    userOptionValues[option] = savedValue
+                                }
+                            }
+                        }
+                        cachedOptionValues = userOptionValues
+                    }
+
+                    configCacheInvalidated = false
+                }
+
+                cachedOptionValues?.forEach { (option, value) ->
+                    realRime.setRuntimeOption(option, value)
+                }
+            }
+        }
+    }
+
     init {
         createNotificationChannel(
             CHANNEL_ID,
@@ -122,8 +179,31 @@ object RimeDaemon {
         TrimeApplication.getInstance().coroutineScope.launch {
             realRime.messageFlow.collect {
                 handleRimeMessage(it)
+
+                when (it) {
+                    is RimeMessage.DeployMessage -> {
+                        if (it.data == RimeMessage.DeployMessage.State.Start) {
+                            configCacheInvalidated = true
+                        }
+                        if (it.data == RimeMessage.DeployMessage.State.Success) {
+                            launch { loadSavedOptions() }
+                        }
+                    }
+                    is RimeMessage.SchemaMessage -> {
+                        launch { loadSavedOptions() }
+                    }
+                    else -> {}
+                }
             }
         }
+
+        realRime.lifecycle.addObserver(
+            RimeLifecycleObserver { state ->
+                if (state == RimeLifecycle.State.READY) {
+                    TrimeApplication.getInstance().coroutineScope.launch { loadSavedOptions() }
+                }
+            },
+        )
     }
 
     private inline fun sendNotification(
