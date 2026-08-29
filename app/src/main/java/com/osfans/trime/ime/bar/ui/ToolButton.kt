@@ -146,6 +146,11 @@ class ToolButton(context: Context) : GestureFrame(context) {
         image.isVisible = true
     }
 
+    fun setIconScale(scale: Float) {
+        image.scaleX = scale
+        image.scaleY = scale
+    }
+
     fun updateStyle(option: String, enabled: Boolean) {
         if (option == this.option) {
             optionEnabled = enabled
