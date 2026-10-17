@@ -12,14 +12,12 @@ import android.view.WindowInsets
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.text.bold
 import androidx.core.text.buildSpannedString
-import androidx.core.text.color
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.osfans.trime.R
 import com.osfans.trime.core.RimeMessage
 import com.osfans.trime.daemon.RimeSession
 import com.osfans.trime.data.prefs.AppPrefs
-import com.osfans.trime.data.theme.ColorManager
 import com.osfans.trime.data.theme.Theme
 import com.osfans.trime.data.theme.ThemeManager
 import com.osfans.trime.data.theme.ThemePrefs
@@ -69,11 +67,11 @@ abstract class BaseInputView(
     fun showCandidateActionMenu(idx: Int, text: String, view: View, global: Boolean) {
         candidateActionMenu?.dismiss()
         candidateActionMenu = null
-        val highlightColor = ColorManager.getColor("hilited_candidate_text_color")
+        // 标题是 disabled 菜单项，文字色由菜单的系统主题提供（与原始 PopupMenu 行为一致）。
+        // 不用 rime 主题色：tongwenfeng 的高亮候选是白字，而菜单底是系统浅色，白对白等于隐形；
+        // rime 的配色是为候选栏的深浅背景设计的，套到系统菜单上没有可靠对比。
         val title = buildSpannedString {
-            bold {
-                color(highlightColor) { append(text) }
-            }
+            bold { append(text) }
         }
         service.lifecycleScope.launch {
             InputFeedbackManager.keyPressVibrate(view, longPress = true)

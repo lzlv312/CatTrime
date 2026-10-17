@@ -315,10 +315,9 @@ class CommonKeyboardActionListener {
             }
 
             /**
-             * 切換懸浮鍵盤。與輸入列上的懸浮鍵盤按鈕行為完全一致：修改偏好後，
-             * 由 [TrimeInputMethodService] 監聽到變更並重建輸入視圖。
+             * 切換懸浮鍵盤。修改偏好後，由 [TrimeInputMethodService] 監聽到變更並重建輸入視圖。
              *
-             * 可用於在隱藏工具欄（`hide_input_bar`）後仍能關閉懸浮鍵盤：
+             * 可用於在隱藏工具欄後仍能切換懸浮鍵盤（別名 `_float_keyboard_mode`）：
              * ```yaml
              * preset_keys:
              *   ToggleFloatingKeyboard:
@@ -331,14 +330,14 @@ class CommonKeyboardActionListener {
                 preference.setValue(!preference.getValue())
             }
 
-            /** 切換工具欄（輸入列）的顯示與隱藏。 */
+            /** 切換工具欄（輸入列）的顯示與隱藏（別名 `switch_hide_tool_bar`）。 */
             private fun switchHideInputBar() {
                 val preference = prefs.keyboard.hideInputBar
                 preference.setValue(!preference.getValue())
             }
 
             /**
-             * 切換候選窗口（實體鍵盤時取代軟鍵盤的那個浮動候選欄）。
+             * 切換候選窗口（實體鍵盤時取代軟鍵盤的那個浮動候選欄，別名 `_candidate_window_mode`）。
              *
              * 偏好只有「跟隨系統 / 跟隨輸入設備 / 始終顯示 / 禁用」四種取值，開關只負責在
              * 「禁用」與「始終顯示」之間來回切換。改完必須請服務重新評估一次視圖可見性 ——
@@ -351,6 +350,8 @@ class CommonKeyboardActionListener {
                     if (enabled) PopupCandidatesMode.DISABLED else PopupCandidatesMode.ALWAYS_SHOW,
                 )
                 service.refreshCandidatesViewMode()
+                // 候選欄與候選窗口切換時清理當前輸入，避免殘留的候選/預編輯引發意外行為
+                rime.launchOnReady { api -> api.clearComposition() }
             }
 
             private fun handleSettings(action: KeyAction) {

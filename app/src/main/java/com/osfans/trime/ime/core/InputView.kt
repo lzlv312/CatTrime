@@ -7,12 +7,14 @@ package com.osfans.trime.ime.core
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -20,7 +22,6 @@ import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InlineSuggestionsResponse
 import android.widget.ImageView
-import androidx.annotation.DrawableRes
 import androidx.annotation.RequiresApi
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
@@ -35,7 +36,6 @@ import com.osfans.trime.core.RimeMessage
 import com.osfans.trime.daemon.RimeSession
 import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.ColorManager
-import com.osfans.trime.data.theme.KeyActionManager
 import com.osfans.trime.data.theme.Theme
 import com.osfans.trime.ime.bar.InputBarDelegate
 import com.osfans.trime.ime.broadcast.EnterKeyDisplayDelegate
@@ -43,7 +43,6 @@ import com.osfans.trime.ime.broadcast.InputBroadcaster
 import com.osfans.trime.ime.candidates.popup.PopupCandidatesMode
 import com.osfans.trime.ime.composition.PreeditDelegate
 import com.osfans.trime.ime.dependency.InputDependencyManager
-import com.osfans.trime.ime.keyboard.CommonKeyboardActionListener
 import com.osfans.trime.ime.keyboard.KeyboardPrefs.isLandscapeMode
 import com.osfans.trime.ime.keyboard.KeyboardWindow
 import com.osfans.trime.ime.popup.PopupDelegate
@@ -196,281 +195,117 @@ internal fun floatingScaleY(
 }
 
 /**
- * Horizontal anchor of an IME-level bottom toggle. They all pin themselves to the bottom
- * edge of the keyboard surface as well.
- */
-internal enum class ActionHandleAnchor {
-    /** Bottom-left corner of the surface. */
-    SURFACE_START,
-
-    /** Bottom-right corner of the surface. */
-    SURFACE_END,
-
-    /** Right after the drag grip, which forms a left-side cluster with the toggles. */
-    AFTER_DRAG_GRIP,
-
-    /** Right after the candidate window toggle. */
-    AFTER_CANDIDATES_WINDOW_TOGGLE,
-
-    /** Right after the floating keyboard toggle. */
-    AFTER_FLOATING_KEYBOARD_TOGGLE,
-
-    /** Right after the toolbar toggle, keeping the two toggles side by side. */
-    AFTER_TOOLBAR_TOGGLE,
-}
-
-/** The IME-level toggles that share the bottom edge of the keyboard surface. */
-internal enum class BottomToggle {
-    /** Shows or hides the floating candidate window that replaces the keyboard. */
-    CANDIDATES_WINDOW,
-
-    /** Docks the keyboard or sets it floating. */
-    FLOATING_KEYBOARD,
-
-    /** Shows or hides the input bar. */
-    TOOLBAR,
-}
-
-/**
- * Anchors of the bottom toggles, in layout order.
+ * 悬浮键盘的容器，唯一职责是识别双指缩放手势。
  *
- * A floating keyboard keeps every toggle after the drag grip, because the resize grip owns
- * the bottom-right corner. Docked mode hides both grips and frees the corners, so the row
- * starts in the bottom-left one and the toolbar toggle moves to the bottom-right one.
+ * 缩放只由双指触发：两指横向间距的变化调宽度，纵向间距的变化调高度，对角线方向则
+ * 两者同时生效；任一手指离开（包括两指变一指）立即结束并落盘。移动窗口只走顶部
+ * 拖动条，键盘按键区域的单指触摸不再有任何窗口手势——按键紧贴卡片边缘，边缘热区
+ * 的方案已验证会吞掉外圈按键的点击。
  */
-internal fun actionHandleAnchors(floating: Boolean): List<Pair<BottomToggle, ActionHandleAnchor>> = if (floating) {
-    listOf(
-        BottomToggle.TOOLBAR to ActionHandleAnchor.AFTER_DRAG_GRIP,
-        BottomToggle.FLOATING_KEYBOARD to ActionHandleAnchor.AFTER_TOOLBAR_TOGGLE,
-        BottomToggle.CANDIDATES_WINDOW to ActionHandleAnchor.AFTER_FLOATING_KEYBOARD_TOGGLE,
-    )
-} else {
-    listOf(
-        BottomToggle.CANDIDATES_WINDOW to ActionHandleAnchor.SURFACE_START,
-        BottomToggle.FLOATING_KEYBOARD to ActionHandleAnchor.AFTER_CANDIDATES_WINDOW_TOGGLE,
-        BottomToggle.TOOLBAR to ActionHandleAnchor.SURFACE_END,
-    )
-}
-
-/** Margins of one bottom handle, in pixels. */
-internal data class HandleMargins(
-    val start: Int,
-    val end: Int,
-    val bottom: Int,
-)
-
-/**
- * Margins that keep a handle at the configured distance from the screen border.
- *
- * Modern phones have rounded corners, and the handle row is pinned to the very bottom of the
- * surface -- which on a docked keyboard is the bottom of the screen, inside the navigation bar
- * area. Without a margin the corner-most handles get clipped by the rounded corner and lose
- * part of their touch target.
- *
- * Only a handle pinned to a corner carries the horizontal margin. A chained handle follows a
- * neighbour that already carries it, so giving it one too would double the gap.
- */
-internal fun handleMargins(anchor: ActionHandleAnchor, margin: Int): HandleMargins = HandleMargins(
-    start = if (anchor == ActionHandleAnchor.SURFACE_START) margin else 0,
-    end = if (anchor == ActionHandleAnchor.SURFACE_END) margin else 0,
-    bottom = margin,
-)
-
-/** Lets a floating keyboard move with two fingers even when keys fill its surface. */
 @SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 private class FloatingKeyboardContainer(
     context: Context,
     floating: Boolean,
-    private val onDrag: (MotionEvent, Boolean) -> Boolean,
+    private val onPinchStart: () -> Unit,
+    private val onPinch: (spanDeltaX: Float, spanDeltaY: Float) -> Unit,
+    private val onPinchEnd: () -> Unit,
 ) : ConstraintLayout(context) {
     var floating: Boolean = floating
         private set
 
-    fun setFloatingEnabled(enabled: Boolean) {
-        floating = enabled
-        cancelArming()
-    }
+    private var pinching = false
+    private var pinchSpanX0 = 0f
+    private var pinchSpanY0 = 0f
 
-    private var twoFingerDrag = false
-    private var dragEnded = false
-
-    // A second finger only *arms* the drag, it never starts it. Typing with two thumbs
-    // produces exactly the same pointer pattern, and intercepting on ACTION_POINTER_DOWN
-    // would cancel the key press already in flight and swallow the one that just began --
-    // both keys go dead, and every following MOVE then re-runs the floating position sync,
-    // which reads as "the keyboard froze and ignored my keys". The drag engages once the
-    // fingers have actually travelled, which is what a deliberate drag always does.
-    private var dragArmed = false
-    private val armedIds = intArrayOf(MotionEvent.INVALID_POINTER_ID, MotionEvent.INVALID_POINTER_ID)
-    private val armedX = FloatArray(2)
-    private val armedY = FloatArray(2)
-
-    // Twice the standard slop: a fast tap can slide a little, a real drag never stays under this.
-    private val armingSlop = ViewConfiguration.get(context).scaledTouchSlop * 2
+    /** 0/1 两指的横向与纵向间距（张开为正、捏合为负的差值基准）。 */
+    private fun spans(event: MotionEvent): Pair<Float, Float> = abs(event.getX(0) - event.getX(1)) to abs(event.getY(0) - event.getY(1))
 
     override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
         if (!floating) return super.onInterceptTouchEvent(event)
         when (event.actionMasked) {
-            MotionEvent.ACTION_POINTER_DOWN -> if (event.pointerCount >= 2) armDrag(event)
-
-            MotionEvent.ACTION_MOVE -> {
-                if (dragArmed && hasArmedPointerMoved(event)) {
-                    cancelArming()
-                    twoFingerDrag = true
-                    dragEnded = false
-                    // Seed from the current position so the keyboard tracks the finger
-                    // instead of jumping by the distance travelled while arming.
-                    sendDragAction(event, MotionEvent.ACTION_DOWN)
+            MotionEvent.ACTION_POINTER_DOWN ->
+                if (!pinching && event.pointerCount == 2) {
+                    pinching = true
+                    val (spanX, spanY) = spans(event)
+                    pinchSpanX0 = spanX
+                    pinchSpanY0 = spanY
+                    // 拦截整段手势：进入缩放后按键不再收到任何事件（已按下的键收到 CANCEL）。
+                    onPinchStart()
                     return true
                 }
-            }
 
-            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> cancelArming()
+            MotionEvent.ACTION_MOVE -> if (pinching) return true
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> if (pinching) endPinch()
         }
         return super.onInterceptTouchEvent(event)
     }
 
-    private fun armDrag(event: MotionEvent) {
-        dragArmed = true
-        armedIds[0] = event.getPointerId(0)
-        armedX[0] = event.getX(0)
-        armedY[0] = event.getY(0)
-        if (event.pointerCount > 1) {
-            armedIds[1] = event.getPointerId(1)
-            armedX[1] = event.getX(1)
-            armedY[1] = event.getY(1)
-        } else {
-            armedIds[1] = MotionEvent.INVALID_POINTER_ID
-        }
-    }
-
-    private fun hasArmedPointerMoved(event: MotionEvent): Boolean {
-        for (i in armedIds.indices) {
-            val id = armedIds[i]
-            if (id == MotionEvent.INVALID_POINTER_ID) continue
-            // Track by pointer id: indices shift as fingers lift, ids do not.
-            val index = event.findPointerIndex(id)
-            if (index < 0) continue
-            val dx = event.getX(index) - armedX[i]
-            val dy = event.getY(index) - armedY[i]
-            if (dx * dx + dy * dy > armingSlop * armingSlop) return true
-        }
-        return false
-    }
-
-    private fun cancelArming() {
-        dragArmed = false
-        armedIds.fill(MotionEvent.INVALID_POINTER_ID)
-    }
-
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!twoFingerDrag) return if (floating) onDrag(event, true) else super.onTouchEvent(event)
+        if (!pinching) return super.onTouchEvent(event)
         when (event.actionMasked) {
-            MotionEvent.ACTION_MOVE -> if (!dragEnded) onDrag(event, false)
-            MotionEvent.ACTION_POINTER_UP -> {
-                if (!dragEnded) sendDragAction(event, MotionEvent.ACTION_UP)
-                dragEnded = true
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (!dragEnded) sendDragAction(event, event.actionMasked)
-                twoFingerDrag = false
-                dragEnded = false
-            }
+            MotionEvent.ACTION_MOVE ->
+                if (event.pointerCount >= 2) {
+                    val (spanX, spanY) = spans(event)
+                    onPinch(spanX - pinchSpanX0, spanY - pinchSpanY0)
+                } else {
+                    // 两指变一指：立即结束，避免剩余单指继续改变尺寸。
+                    endPinch()
+                }
+
+            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> endPinch()
         }
         return true
+    }
+
+    private fun endPinch() {
+        if (!pinching) return
+        pinching = false
+        onPinchEnd()
     }
 
     override fun performClick(): Boolean {
         super.performClick()
         return true
     }
-
-    private fun sendDragAction(event: MotionEvent, action: Int) {
-        MotionEvent.obtain(event).also {
-            it.action = action
-            onDrag(it, false)
-            it.recycle()
-        }
-    }
 }
 
-/** A small grip inside the card corner, so resizing adds no keyboard height. */
+/**
+ * Slim bar across the top of a floating keyboard: dragging it moves the window, the way a
+ * system floating window's top strip does. Draws only a centred horizontal line so the card's
+ * own background keeps showing through.
+ */
 @SuppressLint("ViewConstructor")
-private class FloatingResizeHandle(
+private class FloatingTitleBar(
     context: Context,
-    private val onResize: (MotionEvent) -> Unit,
+    private val onDrag: (MotionEvent) -> Boolean,
+    private val onDragMode: (Boolean) -> Unit,
 ) : View(context) {
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = context.dp(2f)
-        strokeCap = Paint.Cap.ROUND
-    }
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val lineWidth = context.dp(32f)
+    private val lineHeight = context.dp(3.5f)
 
     fun setGripColor(backgroundColor: Int) {
-        stroke.color = if (ColorUtils.calculateLuminance(backgroundColor) > 0.5) Color.DKGRAY else Color.WHITE
-        stroke.alpha = 180
+        line.color = if (ColorUtils.calculateLuminance(backgroundColor) > 0.5) Color.DKGRAY else Color.WHITE
+        line.alpha = 230
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val spacing = context.dp(5).toFloat()
-        val inset = context.dp(9).toFloat()
-        for (line in 0..2) {
-            val endX = width - inset - line * spacing
-            val endY = height - inset
-            canvas.drawLine(endX - spacing * 2, endY, endX, endY - spacing * 2, stroke)
-        }
+        val left = (width - lineWidth) / 2f
+        val top = (height - lineHeight) / 2f
+        canvas.drawRoundRect(left, top, left + lineWidth, top + lineHeight, lineHeight / 2f, lineHeight / 2f, line)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 parent.requestDisallowInterceptTouchEvent(true)
-                onResize(event)
+                onDragMode(true)
             }
-            MotionEvent.ACTION_MOVE, MotionEvent.ACTION_CANCEL -> onResize(event)
-            MotionEvent.ACTION_UP -> {
-                onResize(event)
-                performClick()
-            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> onDragMode(false)
         }
-        return true
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        return true
-    }
-}
-
-/** Compact movement grip in the existing bottom padding. */
-@SuppressLint("ViewConstructor")
-private class FloatingMoveHandle(
-    context: Context,
-    private val onDrag: (MotionEvent) -> Boolean,
-) : View(context) {
-    private val dots = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-
-    fun setGripColor(backgroundColor: Int) {
-        dots.color = if (ColorUtils.calculateLuminance(backgroundColor) > 0.5) Color.DKGRAY else Color.WHITE
-        dots.alpha = 180
-        invalidate()
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val spacing = context.dp(6).toFloat()
-        val radius = context.dp(1.5f)
-        for (row in -1..1) {
-            for (column in -1..1) {
-                canvas.drawCircle(width / 2f + column * spacing, height / 2f + row * spacing, radius, dots)
-            }
-        }
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) parent.requestDisallowInterceptTouchEvent(true)
         onDrag(event)
         if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
         return true
@@ -479,34 +314,6 @@ private class FloatingMoveHandle(
     override fun performClick(): Boolean {
         super.performClick()
         return true
-    }
-}
-
-@SuppressLint("ViewConstructor")
-private class FloatingActionHandle(context: Context) : ImageView(context) {
-    init {
-        scaleType = ImageView.ScaleType.CENTER_INSIDE
-        val padding = context.dp(8)
-        setPadding(padding, padding, padding, padding)
-        isClickable = true
-        // IME controls must not take focus away from the active editor.
-        isFocusable = false
-        isFocusableInTouchMode = false
-        val attributes = context.obtainStyledAttributes(
-            intArrayOf(android.R.attr.selectableItemBackgroundBorderless),
-        )
-        background = attributes.getDrawable(0)
-        attributes.recycle()
-    }
-
-    fun setAction(
-        @DrawableRes icon: Int,
-        description: CharSequence,
-        tint: Int,
-    ) {
-        setImageResource(icon)
-        imageTintList = android.content.res.ColorStateList.valueOf(tint)
-        contentDescription = description
     }
 }
 
@@ -531,7 +338,7 @@ class InputView(
      * Mutable on purpose: after a resize the drag *persists* new percentages, and the surface
      * is then rebuilt at those percentages with `scale = 1`. If these stayed pinned to the
      * values captured at construction, the next resize would apply the new ratio on top of an
-     * already-scaled surface and the size would run away. See [handleFloatingResize].
+     * already-scaled surface and the size would run away. See [updateFloatingResize].
      */
     private var floatingKeyboardBaseWidth = keyboardPrefs.floatingKeyboardWidth.getValue()
     private var floatingKeyboardBaseHeight = keyboardPrefs.floatingKeyboardHeight.getValue()
@@ -574,7 +381,6 @@ class InputView(
     private val preedit: PreeditDelegate by di.instance()
     private val windowManager: BoardWindowManager by di.instance()
     private val inputBar: InputBarDelegate by di.instance()
-    private val commonKeyboardActionListener: CommonKeyboardActionListener by di.instance()
     private val keyboardWindow: KeyboardWindow by di.instance()
     private val liquidWindow: LiquidWindow by di.instance()
 
@@ -613,10 +419,6 @@ class InputView(
             return dp(value)
         }
 
-    /** Distance kept between the bottom handle row (grips and toggles) and the surface edges. */
-    private val bottomHandleMarginPx: Int
-        get() = dp(keyboardPrefs.bottomToggleMargin.getValue())
-
     val keyboardView: View
 
     private var dragDownRawX = 0f
@@ -626,8 +428,6 @@ class InputView(
     private var dragMoved = false
     private var lastHandleTapTime = 0L
     private val dragTouchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private var resizeDownRawX = 0f
-    private var resizeDownRawY = 0f
     private var resizeStartWidth = 0
     private var resizeStartHeight = 0
     private var resizeStartScaleX = 1f
@@ -646,27 +446,8 @@ class InputView(
     private val lastFloatingBounds = Rect()
     private var hasLastFloatingBounds = false
 
-    private val resizeHandle = FloatingResizeHandle(context, ::handleFloatingResize)
-    private val moveHandle = FloatingMoveHandle(context) { handleFloatingDrag(it) }
-    private val inputBarToggleHandle = FloatingActionHandle(context).apply {
-        setOnClickListener {
-            dispatchKeyboardCommand("switch_hide_input_bar")
-        }
-    }
-    private val floatingModeToggleHandle = FloatingActionHandle(context).apply {
-        setOnClickListener {
-            dispatchKeyboardCommand("switch_floating_keyboard")
-        }
-    }
-    private val candidatesWindowToggleHandle = FloatingActionHandle(context).apply {
-        setOnClickListener {
-            dispatchKeyboardCommand("switch_candidates_window")
-        }
-    }
-
-    private fun dispatchKeyboardCommand(command: String) {
-        commonKeyboardActionListener.listener.onAction(KeyActionManager.getCommandAction(command))
-    }
+    private val titleBar =
+        FloatingTitleBar(context, { handleFloatingDrag(it) }) { onFloatingDragMode(it) }
 
     /**
      * The width the floating width percentage is measured against: the screen's **short** side.
@@ -695,80 +476,109 @@ class InputView(
         windowWidthPx = width,
     )
 
-    private fun handleFloatingResize(event: MotionEvent) {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                resizeDownRawX = event.rawX
-                resizeDownRawY = event.rawY
-                resizeStartWidth = keyboardView.width
-                resizeStartHeight = windowManager.view.height
-                resizeStartScaleX = keyboardView.scaleX
-                resizeStartScaleY = keyboardView.scaleY
-                resizeStartWidthPercent = floatingKeyboardWidth
-                resizeStartHeightPercent = floatingKeyboardHeight
-                resizedWidth = resizeStartWidthPercent
-                resizedHeight = resizeStartHeightPercent
-                keyboardView.pivotX = 0f
-                keyboardView.pivotY = 0f
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (resizeStartWidth == 0 || resizeStartHeight == 0) return
-                resizedWidth = resizedPercent(
-                    resizeStartWidthPercent,
-                    (resizeStartWidth * resizeStartScaleX).roundToInt(),
-                    event.rawX - resizeDownRawX,
-                    minWidthPercent(),
-                    100,
-                )
-                resizedHeight = resizedPercent(
-                    resizeStartHeightPercent,
-                    (resizeStartHeight * resizeStartScaleY).roundToInt(),
-                    event.rawY - resizeDownRawY,
-                    70,
-                    130,
-                )
-                keyboardView.scaleX = floatingScaleX(resizedWidth, floatingKeyboardBaseWidth)
-                // The toolbar height is fixed, while the key area follows the height preference.
-                keyboardView.scaleY =
-                    floatingScaleY(
-                        resizedHeight,
-                        floatingKeyboardBaseHeight,
-                        keyboardView.height,
-                        resizeStartHeight,
-                    )
-                applyFloatingPosition(
-                    keyboardView.translationX,
-                    keyboardView.translationY,
-                    persist = false,
-                )
-            }
-            MotionEvent.ACTION_UP -> {
-                floatingKeyboardWidth = resizedWidth
-                floatingKeyboardHeight = resizedHeight
-                // The surface is now persisted at these percentages, so they *are* the baseline:
-                // the width reaches them through the layout (the preference drives the measured
-                // width), and the height has no layout carrier at all, so it still has to be
-                // expressed as a scale. Pinning the baseline here is what keeps a second resize
-                // from compounding onto the previous one.
-                floatingKeyboardBaseWidth = resizedWidth
-                floatingKeyboardBaseHeight = resizedHeight
-                keyboardView.updateLayoutParams<LayoutParams> {
-                    matchConstraintPercentWidth = layoutWidthPercent(resizedWidth) / 100f
-                }
-                keyboardView.doOnLayout { applyFloatingScale() }
-                service.updateFloatingKeyboardSize(resizedWidth, resizedHeight)
-                service.requestInputInsetsUpdate()
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                keyboardView.scaleX = resizeStartScaleX
-                keyboardView.scaleY = resizeStartScaleY
-                applyFloatingPosition(
-                    keyboardView.translationX,
-                    keyboardView.translationY,
-                    persist = false,
-                )
-            }
+    /** 双指按下时记录缩放基线（当前尺寸/缩放/百分比）。 */
+    private fun beginFloatingResize() {
+        resizeStartWidth = keyboardView.width
+        resizeStartHeight = windowManager.view.height
+        resizeStartScaleX = keyboardView.scaleX
+        resizeStartScaleY = keyboardView.scaleY
+        resizeStartWidthPercent = floatingKeyboardWidth
+        resizeStartHeightPercent = floatingKeyboardHeight
+        resizedWidth = resizeStartWidthPercent
+        resizedHeight = resizeStartHeightPercent
+        keyboardView.pivotX = 0f
+        keyboardView.pivotY = 0f
+    }
+
+    /** 两指间距变化驱动尺寸：横向间距差调宽、纵向间距差调高，对角线两者同时生效。 */
+    private fun updateFloatingResize(spanDeltaX: Float, spanDeltaY: Float) {
+        if (resizeStartWidth == 0 || resizeStartHeight == 0) return
+        if (keyboardPrefs.floatingKeyboardKeepRatio.getValue()) {
+            // 等比模式：任一方向的捏合都驱动同一个缩放因子（取主导轴的间距差），
+            // 高度由 scaleX == scaleY 的几何关系从宽度反解，键盘内容永不变形。
+            val spanDelta = if (abs(spanDeltaX) >= abs(spanDeltaY)) spanDeltaX else spanDeltaY
+            resizedWidth = resizedPercent(
+                resizeStartWidthPercent,
+                (resizeStartWidth * resizeStartScaleX).roundToInt(),
+                spanDelta,
+                minWidthPercent(),
+                100,
+            )
+            resizedHeight = keepRatioHeightFor(resizedWidth).coerceIn(70, 130)
+        } else {
+            resizedWidth = resizedPercent(
+                resizeStartWidthPercent,
+                (resizeStartWidth * resizeStartScaleX).roundToInt(),
+                spanDeltaX,
+                minWidthPercent(),
+                100,
+            )
+            resizedHeight = resizedPercent(
+                resizeStartHeightPercent,
+                (resizeStartHeight * resizeStartScaleY).roundToInt(),
+                spanDeltaY,
+                70,
+                130,
+            )
         }
+        keyboardView.scaleX = floatingScaleX(resizedWidth, floatingKeyboardBaseWidth)
+        // The toolbar height is fixed, while the key area follows the height preference.
+        keyboardView.scaleY =
+            floatingScaleY(
+                resizedHeight,
+                floatingKeyboardBaseHeight,
+                keyboardView.height,
+                resizeStartHeight,
+            )
+        applyFloatingPosition(
+            keyboardView.translationX,
+            keyboardView.translationY,
+            persist = false,
+        )
+    }
+
+    /**
+     * 等比模式下与 [widthPercent] 联动的高度百分比：令 [floatingScaleY] 与 [floatingScaleX]
+     * 相等，即键盘内容横纵向同步缩放（不变形）。参考高度未知（从未开始过缩放手势）时两者
+     * 同参考，公式退化为百分比空间的等比——设置页滑条联动走的就是这条路径。
+     */
+    fun keepRatioHeightFor(widthPercent: Int): Int {
+        val scaleX = floatingScaleX(widthPercent, floatingKeyboardBaseWidth)
+        val containerH = keyboardView.height
+        val refH = resizeStartHeight.takeIf { it > 0 } ?: containerH
+        val base = floatingKeyboardBaseHeight
+        if (base <= 0 || containerH <= 0 || refH <= 0) return base
+        return (base + (scaleX - 1f) * base * containerH.toFloat() / refH).roundToInt()
+    }
+
+    /** 等比模式下与 [heightPercent] 联动的宽度百分比（[keepRatioHeightFor] 的逆运算）。 */
+    fun keepRatioWidthFor(heightPercent: Int): Int {
+        val containerH = keyboardView.height
+        val refH = resizeStartHeight.takeIf { it > 0 } ?: containerH
+        val scaleY = floatingScaleY(heightPercent, floatingKeyboardBaseHeight, containerH, refH)
+        return (floatingKeyboardBaseWidth * scaleY).roundToInt().coerceAtLeast(minWidthPercent())
+    }
+
+    /** 手指离开（两指变一指也算）时把当前尺寸落盘，作为下次缩放的基线。 */
+    private fun endFloatingResize() {
+        if (resizeStartWidth == 0 || resizeStartHeight == 0) return
+        floatingKeyboardWidth = resizedWidth
+        floatingKeyboardHeight = resizedHeight
+        // The surface is now persisted at these percentages, so they *are* the baseline:
+        // the width reaches them through the layout (the preference drives the measured
+        // width), and the height has no layout carrier at all, so it still has to be
+        // expressed as a scale. Pinning the baseline here is what keeps a second resize
+        // from compounding onto the previous one.
+        floatingKeyboardBaseWidth = resizedWidth
+        floatingKeyboardBaseHeight = resizedHeight
+        resizeStartWidth = 0
+        resizeStartHeight = 0
+        keyboardView.updateLayoutParams<LayoutParams> {
+            matchConstraintPercentWidth = layoutWidthPercent(resizedWidth) / 100f
+        }
+        keyboardView.doOnLayout { applyFloatingScale() }
+        service.updateFloatingKeyboardSize(resizedWidth, resizedHeight)
+        service.requestInputInsetsUpdate()
     }
 
     /**
@@ -967,77 +777,53 @@ class InputView(
     private val inputViewLocation = intArrayOf(0, 0)
     private val preeditViewLocation = intArrayOf(0, 0)
 
-    /** Switch floating mode on the existing tree so a custom key does not rebuild the IME view. */
-    fun setFloatingKeyboardEnabled(enabled: Boolean) {
-        if (isFloatingKeyboardEnabled == enabled) return
-        isFloatingKeyboardEnabled = enabled
-        // The layout is about to be reflowed; the cached region no longer describes it.
-        hasLastFloatingBounds = false
-        (keyboardView as FloatingKeyboardContainer).setFloatingEnabled(enabled)
-        configureFloatingSurface(enabled)
-        inputBar.onFloatingKeyboardChanged(enabled)
-
-        keyboardView.updateLayoutParams<LayoutParams> {
-            width = if (enabled) 0 else matchParent
-            matchConstraintPercentWidth = if (enabled) layoutWidthPercent(floatingKeyboardWidth) / 100f else 1f
-            bottomMargin = if (enabled) dp(18) else 0
-        }
-
-        if (enabled) {
-            keyboardView.translationX = 0f
-            keyboardView.translationY = 0f
-        } else {
-            keyboardView.translationX = 0f
-            keyboardView.translationY = 0f
-            keyboardView.scaleX = 1f
-            keyboardView.scaleY = 1f
-            preedit.ui.root.apply {
-                translationX = 0f
-                translationY = 0f
-                scaleX = 1f
-                updateLayoutParams { width = wrapContent }
-            }
-        }
-
-        // Wait for the resized card to be measured, then rebuild only the key grid.
-        // Keyboard height is baked into Key geometry, while the surrounding IME tree
-        // and Rime session remain attached.
-        windowManager.view.doOnLayout {
-            keyboardWindow.refreshKeyboards()
-            if (windowManager.isAttached(keyboardWindow)) {
-                windowManager.view.updateLayoutParams<LayoutParams> {
-                    height = KeyboardWindow.currentKeyboard.keyboardHeight
-                }
-            }
-            if (enabled) {
-                keyboardView.post {
-                    // The card is measured now, so the persisted height percentage can be put
-                    // back on the freshly measured surface.
-                    applyFloatingScale()
-                    applyFloatingPosition(
-                        keyboardPrefs.floatingKeyboardOffsetX.getValue().toFloat(),
-                        keyboardPrefs.floatingKeyboardOffsetY.getValue().toFloat(),
-                        persist = false,
-                    )
-                }
-            }
-            service.requestInputInsetsUpdate()
-        }
-        service.requestInputInsetsUpdate()
-    }
-
     fun refreshHideInputBar() {
         inputBar.onHideInputBarChanged()
-        updateFloatingActionHandles()
     }
 
+    /**
+     * 窗口手势模式切换的通知：进入时给一次长按触感震动，松手自动结束。
+     * 触发点两处——顶部拖动条按下（[FloatingTitleBar]）、双指进入缩放
+     * （[FloatingKeyboardContainer.onPinchStart]）。
+     */
+    private fun onFloatingDragMode(active: Boolean) {
+        if (active) {
+            keyboardView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+    }
+
+    /** 悬浮卡片的实际底色，由 [configureFloatingSurface] 刷新，拖动横线的对比色取自它。 */
+    private var floatingBackColor: Int = Color.WHITE
+
+    /**
+     * 悬浮卡片的底色。
+     *
+     * keyboard_back_color 在不少主题里是图片引用（默认 trime 主题就是 `@background`），而
+     * [ColorManager.getColor] 遇到图片值会把键名当颜色字符串解析，直接抛异常——所以这里
+     * 必须走 [ColorManager.getDrawable]：纯色（GradientDrawable）取其色值；图片无法提炼
+     * 单色，改用跟随夜间的 Material 兜底色，悬浮卡片本来就是系统气泡风格的纯色面板。
+     */
+    private fun resolveFloatingBackColor(): Int = when (val drawable = ColorManager.getDrawable("keyboard_back_color")) {
+        is GradientDrawable -> drawable.color?.defaultColor ?: fallbackFloatingBackColor()
+        else -> fallbackFloatingBackColor()
+    }
+
+    private fun fallbackFloatingBackColor(): Int = if (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES) {
+        0xFF1C1B1F.toInt()
+    } else {
+        0xFFFFFBFE.toInt()
+    }
+
+    /** Styles the floating card and the drag title bar; docked mode strips both. */
     private fun configureFloatingSurface(enabled: Boolean) {
         val surface = keyboardView as FloatingKeyboardContainer
+        val backColor = resolveFloatingBackColor()
+        floatingBackColor = backColor
         if (enabled) {
             surface.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(24f)
-                setColor(ColorManager.getColor("keyboard_back_color"))
+                setColor(backColor)
             }
             surface.clipToOutline = true
             surface.elevation = dp(FLOATING_KEYBOARD_ELEVATION_DP)
@@ -1053,151 +839,13 @@ class InputView(
             surface.setOnClickListener(null)
         }
 
-        moveHandle.apply {
-            contentDescription = context.getString(R.string.floating_keyboard_drag_handle)
-            isClickable = enabled
+        titleBar.apply {
             visibility = if (enabled) View.VISIBLE else View.GONE
-            setGripColor(ColorManager.getColor("keyboard_back_color"))
-        }
-        resizeHandle.apply {
-            contentDescription = context.getString(R.string.floating_keyboard_resize_handle)
             isClickable = enabled
-            visibility = if (enabled) View.VISIBLE else View.GONE
-            setGripColor(ColorManager.getColor("keyboard_back_color"))
+            contentDescription =
+                if (enabled) context.getString(R.string.floating_keyboard_drag_handle) else null
+            setGripColor(backColor)
         }
-        if (moveHandle.parent == null) {
-            surface.add(moveHandle, lParams(dp(36), dp(36)) { bottomOfParent() })
-        }
-        if (inputBarToggleHandle.parent == null) {
-            surface.add(inputBarToggleHandle, lParams(dp(36), dp(36)) { bottomOfParent() })
-        }
-        if (floatingModeToggleHandle.parent == null) {
-            surface.add(floatingModeToggleHandle, lParams(dp(36), dp(36)) { bottomOfParent() })
-        }
-        if (candidatesWindowToggleHandle.parent == null) {
-            surface.add(candidatesWindowToggleHandle, lParams(dp(36), dp(36)) { bottomOfParent() })
-        }
-        if (resizeHandle.parent == null) {
-            surface.add(resizeHandle, lParams(dp(36), dp(36)) { bottomOfParent() })
-        }
-        // Both the anchors and the edge margin depend on state that can change at runtime (the
-        // mode, and the margin preference), so the whole bottom row is placed here instead of
-        // in the layout params it was added with.
-        placeBottomHandles(enabled)
-        updateFloatingActionHandles()
-    }
-
-    /**
-     * Places the bottom row: the two floating grips and the three toggles.
-     *
-     * The toggles spread out differently per mode, and every handle keeps
-     * [bottomHandleMarginPx] away from the surface edges, so a rounded screen corner cannot
-     * clip it or eat its taps.
-     */
-    private fun placeBottomHandles(floating: Boolean) {
-        val margin = bottomHandleMarginPx
-        moveHandle.updateLayoutParams<ConstraintLayout.LayoutParams> {
-            anchorTo(ActionHandleAnchor.SURFACE_START, margin)
-        }
-        resizeHandle.updateLayoutParams<ConstraintLayout.LayoutParams> {
-            anchorTo(ActionHandleAnchor.SURFACE_END, margin)
-        }
-        actionHandleAnchors(floating).forEach { (toggle, anchor) ->
-            val handle = when (toggle) {
-                BottomToggle.CANDIDATES_WINDOW -> candidatesWindowToggleHandle
-                BottomToggle.FLOATING_KEYBOARD -> floatingModeToggleHandle
-                BottomToggle.TOOLBAR -> inputBarToggleHandle
-            }
-            handle.updateLayoutParams<ConstraintLayout.LayoutParams> { anchorTo(anchor, margin) }
-        }
-    }
-
-    /**
-     * Pins the handle to the bottom edge, at the requested horizontal anchor.
-     *
-     * The margins go through the *relative* [marginStart] / [marginEnd] properties on purpose:
-     * the splitties helpers used here write absolute margins (and `endOfParent` writes
-     * `rightMargin` directly), which the start/end resolution that runs on every
-     * `setLayoutParams` would then overwrite with zero. Only a handle pinned to a corner keeps
-     * the edge margin -- a chained one follows a neighbour that already carries it.
-     */
-    private fun ConstraintLayout.LayoutParams.anchorTo(anchor: ActionHandleAnchor, margin: Int) {
-        // Clear first: an anchor left over from the previous placement must not survive.
-        startToStart = ConstraintLayout.LayoutParams.UNSET
-        startToEnd = ConstraintLayout.LayoutParams.UNSET
-        endToStart = ConstraintLayout.LayoutParams.UNSET
-        endToEnd = ConstraintLayout.LayoutParams.UNSET
-        when (anchor) {
-            ActionHandleAnchor.SURFACE_START -> startOfParent()
-            ActionHandleAnchor.SURFACE_END -> endOfParent()
-            ActionHandleAnchor.AFTER_DRAG_GRIP -> startToEndOf(moveHandle)
-            ActionHandleAnchor.AFTER_CANDIDATES_WINDOW_TOGGLE -> startToEndOf(candidatesWindowToggleHandle)
-            ActionHandleAnchor.AFTER_FLOATING_KEYBOARD_TOGGLE -> startToEndOf(floatingModeToggleHandle)
-            ActionHandleAnchor.AFTER_TOOLBAR_TOGGLE -> startToEndOf(inputBarToggleHandle)
-        }
-        bottomOfParent()
-        val margins = handleMargins(anchor, margin)
-        marginStart = margins.start
-        marginEnd = margins.end
-        bottomMargin = margins.bottom
-    }
-
-    private fun updateFloatingActionHandles() {
-        val toolbarHidden = keyboardPrefs.hideInputBar.getValue()
-        val handleTint =
-            if (ColorUtils.calculateLuminance(ColorManager.getColor("keyboard_back_color")) > 0.5) {
-                Color.DKGRAY
-            } else {
-                Color.WHITE
-            }
-        inputBarToggleHandle.apply {
-            setAction(
-                if (toolbarHidden) R.drawable.ic_baseline_more_horiz_24 else R.drawable.ic_baseline_arrow_drop_down_24,
-                context.getString(if (toolbarHidden) R.string.show_input_bar else R.string.hide_input_bar),
-                handleTint,
-            )
-            visibility = View.VISIBLE
-        }
-        floatingModeToggleHandle.apply {
-            setAction(
-                if (isFloatingKeyboardEnabled) {
-                    R.drawable.ic_baseline_keyboard_24
-                } else {
-                    R.drawable.ic_floating_keyboard_24
-                },
-                context.getString(
-                    if (isFloatingKeyboardEnabled) R.string.dock_keyboard else R.string.enable_floating_keyboard,
-                ),
-                handleTint,
-            )
-            visibility =
-                if (!isFloatingKeyboardEnabled || toolbarHidden) View.VISIBLE else View.GONE
-        }
-        val candidatesWindowEnabled = candidatesMode != PopupCandidatesMode.DISABLED
-        candidatesWindowToggleHandle.apply {
-            setAction(
-                if (candidatesWindowEnabled) {
-                    R.drawable.ic_baseline_deselect_24
-                } else {
-                    R.drawable.ic_baseline_list_alt_24
-                },
-                context.getString(
-                    if (candidatesWindowEnabled) R.string.hide_candidates_window else R.string.show_candidates_window,
-                ),
-                handleTint,
-            )
-            visibility = View.VISIBLE
-        }
-    }
-
-    /** Re-reads the candidate window mode, which the bottom toggle mirrors. */
-    fun refreshCandidatesWindowToggle() {
-        updateFloatingActionHandles()
-    }
-
-    /** Re-applies the bottom handle margin, which the settings screen changes at runtime. */
-    fun refreshBottomHandleMargin() {
-        placeBottomHandles(isFloatingKeyboardEnabled)
     }
 
     init {
@@ -1212,7 +860,19 @@ class InputView(
         keyboardBackground.imageDrawable = ColorManager.getDrawable("keyboard_background")
 
         keyboardView =
-            FloatingKeyboardContainer(context, isFloatingKeyboardEnabled, ::handleFloatingDrag).apply {
+            FloatingKeyboardContainer(
+                context,
+                isFloatingKeyboardEnabled,
+                onPinchStart = {
+                    beginFloatingResize()
+                    onFloatingDragMode(true)
+                },
+                onPinch = ::updateFloatingResize,
+                onPinchEnd = {
+                    endFloatingResize()
+                    onFloatingDragMode(false)
+                },
+            ).apply {
                 isMotionEventSplittingEnabled = true
                 add(
                     keyboardBackground,
@@ -1223,7 +883,7 @@ class InputView(
                 add(
                     inputBar.view,
                     lParams(matchParent, dp(inputBar.themedHeight)) {
-                        topOfParent()
+                        below(titleBar)
                         centerHorizontally()
                     },
                 )
@@ -1256,6 +916,14 @@ class InputView(
                         startToEndOf(leftPaddingSpace)
                         endToStartOf(rightPaddingSpace)
                         bottomOfParent()
+                    },
+                )
+                // 拖动横线必须画在键盘背景图之上：keyboardBackground 的图片按内在尺寸
+                // 居中铺开，会盖住顶部 16dp 区域——最后添加才能保证 titleBar 在最顶层。
+                add(
+                    titleBar,
+                    lParams(matchParent, dp(16)) {
+                        topOfParent()
                     },
                 )
             }

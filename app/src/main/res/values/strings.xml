@@ -143,9 +143,11 @@
     <string name="enable_landscape_mode">Enable Landscape Mode</string>
     <string name="split_space_percent">Auto Split Keyboard Space Ratio</string>
     <string name="floating_keyboard">Floating keyboard</string>
-    <string name="floating_keyboard_summary">Show the keyboard as a movable card. Drag the bottom-left grip or use two fingers to move it, double-tap the grip to reset its position, and drag the bottom-right corner to resize it.</string>
+    <string name="floating_keyboard_summary">Show the keyboard as a movable card. Drag the top bar to move it, double-tap the top bar to reset its position, and pinch with two fingers to resize it.</string>
     <string name="floating_keyboard_width">Floating keyboard width</string>
     <string name="floating_keyboard_height">Floating keyboard height</string>
+    <string name="floating_keyboard_keep_ratio">Keep keyboard aspect ratio</string>
+    <string name="floating_keyboard_keep_ratio_summary">Resize without distortion: width and height stay locked to the same scale. Turn off to adjust them independently.</string>
     <string name="floating_preedit_offset_x">Floating preedit horizontal offset (right is positive)</string>
     <string name="floating_preedit_offset_y">Floating preedit vertical offset (down is positive)</string>
     <string name="floating_keyboard_drag_handle">Drag floating keyboard; double-tap to reset position</string>
@@ -198,7 +200,6 @@
     <string name="view_deploy_failure_log">Deploy failure. Click here to view error log.</string>
     <string name="hide_candidates_window">Hide candidates window</string>
     <string name="hide_input_bar">Hide input bar</string>
-    <string name="bottom_toggle_margin">Bottom toggle margin</string>
     <string name="hide_key_symbol">Hide key symbol</string>
     <string name="hide_key_hint">Hide key hint</string>
     <string name="navbar_bkg_none">No background</string>

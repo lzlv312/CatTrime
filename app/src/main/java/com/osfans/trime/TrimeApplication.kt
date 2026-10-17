@@ -9,6 +9,7 @@ import android.app.Application
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Process
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -61,7 +62,12 @@ class TrimeApplication : Application() {
         super.onCreate()
         // Let Android 12+ derive the settings palette from the user's wallpaper.
         // Older Android versions keep using Trime's Material 3 fallback palette.
-        DynamicColors.applyToActivitiesIfAvailable(this)
+        // The explicit gate keeps pre-S devices away from the system Monet palettes:
+        // some OEM ROMs expose broken `android.R.color.system_*` resources below S,
+        // and Material only consults its per-manufacturer allowlist from S on.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            DynamicColors.applyToActivitiesIfAvailable(this)
+        }
         if (!BuildConfig.DEBUG) {
             Thread.setDefaultUncaughtExceptionHandler { _, e ->
                 val crashTime = System.currentTimeMillis()

@@ -81,9 +81,6 @@ class InputBarDelegate : InputBroadcastReceiver {
 
     private val hideQuickBar by prefs.keyboard.hideInputBar
 
-    private var blendCompactCandidatesIntoFloatingKeyboard =
-        hideQuickBar && prefs.keyboard.floatingKeyboard.getValue()
-
     private val clipboardSuggestion by prefs.clipboard.clipboardSuggestion
 
     private val clipboardSuggestionTimeout by prefs.clipboard.clipboardSuggestionTimeout
@@ -148,32 +145,6 @@ class InputBarDelegate : InputBroadcastReceiver {
             hideKeyboardButton.apply {
                 setOnClickListener { service.requestHideSelf(0) }
                 onSwipe = swipeDownHideKeyboardCallback
-            }
-            floatingKeyboardButton.apply {
-                val isFloating = prefs.keyboard.floatingKeyboard.getValue()
-                setIcon(
-                    if (isFloating) {
-                        R.drawable.ic_baseline_keyboard_24
-                    } else {
-                        R.drawable.ic_floating_keyboard_24
-                    },
-                )
-                contentDescription = context.getString(
-                    if (isFloating) {
-                        R.string.dock_keyboard
-                    } else {
-                        R.string.enable_floating_keyboard
-                    },
-                )
-                setOnClickListener {
-                    prefs.keyboard.floatingKeyboard.setValue(
-                        !prefs.keyboard.floatingKeyboard.getValue(),
-                    )
-                }
-                setOnLongClickListener {
-                    AppUtils.launchMainToKeyboard(context)
-                    true
-                }
             }
             clipboardUi.suggestionView.apply {
                 setOnClickListener {
@@ -275,20 +246,6 @@ class InputBarDelegate : InputBroadcastReceiver {
         view.displayedChild = index
     }
 
-    /** Apply toolbar preferences without replacing the input view hierarchy. */
-    fun onFloatingKeyboardChanged(isFloating: Boolean) {
-        blendCompactCandidatesIntoFloatingKeyboard = hideQuickBar && isFloating
-        alwaysUi.floatingKeyboardButton.apply {
-            setIcon(
-                if (isFloating) R.drawable.ic_baseline_keyboard_24 else R.drawable.ic_floating_keyboard_24,
-            )
-            contentDescription = context.getString(
-                if (isFloating) R.string.dock_keyboard else R.string.enable_floating_keyboard,
-            )
-        }
-        switchUiByState(barStateMachine.currentState)
-    }
-
     fun onHideInputBarChanged() {
         switchUiByState(barStateMachine.currentState)
     }
@@ -325,10 +282,11 @@ class InputBarDelegate : InputBroadcastReceiver {
     }
 
     private fun barBackground(state: QuickBarStateMachine.State): Drawable? {
-        if (
-            blendCompactCandidatesIntoFloatingKeyboard &&
-            state == QuickBarStateMachine.State.Candidate
-        ) {
+        // blend 必须每次实时求值：本 delegate 是 DI 单例，跨 InputView 重建存活，
+        // 构造时快照会在悬浮键盘开关切换后与实际的卡片背景状态分叉——悬浮关闭后
+        // blend 仍为 true 时，停靠键盘的候选栏会拿到 null 背景（整条透明）。
+        val blendIntoFloatingCard = hideQuickBar && prefs.keyboard.floatingKeyboard.getValue()
+        if (blendIntoFloatingCard && state == QuickBarStateMachine.State.Candidate) {
             // Let the floating keyboard's themed background continue through the
             // compact candidate row instead of drawing a separate, mismatched panel.
             return null

@@ -122,6 +122,7 @@ class AppPrefs(
             const val FLOATING_KEYBOARD = "floating_keyboard"
             const val FLOATING_KEYBOARD_WIDTH = "floating_keyboard_width"
             const val FLOATING_KEYBOARD_HEIGHT = "floating_keyboard_height"
+            const val FLOATING_KEYBOARD_KEEP_RATIO = "floating_keyboard_keep_ratio"
             const val FLOATING_KEYBOARD_OFFSET_X = "floating_keyboard_offset_x"
             const val FLOATING_KEYBOARD_OFFSET_Y = "floating_keyboard_offset_y"
             const val FLOATING_PREEDIT_OFFSET_X = "floating_preedit_offset_x"
@@ -131,7 +132,6 @@ class AppPrefs(
 
             const val USE_SOFT_CURSOR = "use_soft_cursor"
             const val HIDE_INPUT_BAR = "hide_input_bar"
-            const val BOTTOM_TOGGLE_MARGIN = "bottom_toggle_margin"
             const val HIDE_KEY_SYMBOL = "hide_key_symbol"
             const val HIDE_KEY_HINT = "hide_key_hint"
 
@@ -203,6 +203,12 @@ class AppPrefs(
             "%",
             5,
         ) { floatingKeyboard.getValue() }
+        val floatingKeyboardKeepRatio = switch(
+            R.string.floating_keyboard_keep_ratio,
+            FLOATING_KEYBOARD_KEEP_RATIO,
+            false,
+            R.string.floating_keyboard_keep_ratio_summary,
+        ) { floatingKeyboard.getValue() }
         val floatingPreeditOffsetX = int(
             R.string.floating_preedit_offset_x,
             FLOATING_PREEDIT_OFFSET_X,
@@ -237,14 +243,6 @@ class AppPrefs(
         val useSoftCursor = switch(R.string.use_soft_cursor, USE_SOFT_CURSOR, true)
 
         val hideInputBar = switch(R.string.hide_input_bar, HIDE_INPUT_BAR, false)
-        val bottomToggleMargin = int(
-            R.string.bottom_toggle_margin,
-            BOTTOM_TOGGLE_MARGIN,
-            0,
-            0,
-            48,
-            "dp",
-        )
         val hideKeySymbol = switch(R.string.hide_key_symbol, HIDE_KEY_SYMBOL, false)
         val hideKeyHint = switch(R.string.hide_key_hint, HIDE_KEY_HINT, false)
 

@@ -143,9 +143,11 @@
     <string name="enable_landscape_mode">啟用橫屏模式</string>
     <string name="split_space_percent">自動分割鍵盤比例</string>
     <string name="floating_keyboard">懸浮鍵盤</string>
-    <string name="floating_keyboard_summary">將鍵盤顯示為可移動卡片。拖曳左下角控點或以雙指拖曳可移動鍵盤，雙擊控點恢復預設位置，拖曳右下角可調整大小。</string>
+    <string name="floating_keyboard_summary">將鍵盤顯示為可移動卡片。拖曳頂部橫條移動位置，雙擊橫條恢復預設位置，雙指捏合調整大小。</string>
     <string name="floating_keyboard_width">懸浮鍵盤寬度</string>
     <string name="floating_keyboard_height">懸浮鍵盤高度</string>
+    <string name="floating_keyboard_keep_ratio">懸浮鍵盤等比例縮放</string>
+    <string name="floating_keyboard_keep_ratio_summary">縮放時寬高保持同比例，鍵盤不變形。關閉後可分別調整寬度和高度。</string>
     <string name="floating_preedit_offset_x">懸浮編碼區水平偏移（向右為正）</string>
     <string name="floating_preedit_offset_y">懸浮編碼區垂直偏移（向下為正）</string>
     <string name="floating_keyboard_drag_handle">拖曳懸浮鍵盤，雙擊恢復預設位置</string>
@@ -198,7 +200,6 @@
     <string name="view_deploy_failure_log">部署失敗。點此檢視錯誤日誌。</string>
     <string name="hide_candidates_window">隱藏候選視窗</string>
     <string name="hide_input_bar">隱藏輸入工具欄</string>
-    <string name="bottom_toggle_margin">底部開關邊距</string>
     <string name="hide_key_symbol">隱藏按鍵符號</string>
     <string name="hide_key_hint">隱藏按鍵註解</string>
     <string name="navbar_bkg_none">無背景</string>

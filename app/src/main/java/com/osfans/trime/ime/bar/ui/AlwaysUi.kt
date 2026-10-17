@@ -68,7 +68,6 @@ class AlwaysUi(
     val inlineSuggestionsUi = InlineSuggestionsUi(ctx)
 
     val hideKeyboardButton = ToolButton(ctx, R.drawable.ic_baseline_arrow_drop_down_24)
-    val floatingKeyboardButton = ToolButton(ctx, R.drawable.ic_floating_keyboard_24)
     private val rightMostButton =
         ViewAnimator(ctx).apply {
             add(hideKeyboardButton, lParams(matchParent, matchParent))
@@ -90,7 +89,6 @@ class AlwaysUi(
     override val root: ConstraintLayout = constraintLayout {
         val (leftWidth, leftHeight) = buttonsUi.getButtonSize(theme.toolBar.primaryButton)
         val (rightWidth, rightHeight) = buttonsUi.getButtonSize(theme.toolBar.buttons.firstOrNull())
-        val (floatingWidth, floatingHeight) = buttonsUi.getButtonSize(null)
 
         add(
             leftMostButton,
@@ -107,18 +105,10 @@ class AlwaysUi(
             },
         )
         add(
-            floatingKeyboardButton,
-            lParams(floatingWidth, floatingHeight) {
-                before(rightMostButton)
-                centerVertically()
-            },
-        )
-        add(
             animator,
             lParams(matchConstraints, matchParent) {
                 after(leftMostButton)
-                before(floatingKeyboardButton)
-                endOfParent()
+                before(rightMostButton)
                 centerVertically()
             },
         )

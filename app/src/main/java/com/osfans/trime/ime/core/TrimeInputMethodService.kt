@@ -108,7 +108,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
         prefs.keyboard.hideKeySymbol,
         prefs.keyboard.hideKeyHint,
         prefs.keyboard.hideInputBar,
-        prefs.keyboard.bottomToggleMargin,
         prefs.advanced.ignoreSystemGestureInsets,
     )
 
@@ -117,11 +116,9 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
         PreferenceDelegate.OnChangeListener<Any> { key, _ ->
             if (updatingFloatingKeyboardSize) return@OnChangeListener
             when (key) {
-                AppPrefs.Keyboard.FLOATING_KEYBOARD -> {
-                    val enabled = prefs.keyboard.floatingKeyboard.getValue()
-                    inputView?.setFloatingKeyboardEnabled(enabled)
-                        ?: replaceInputView(ThemeManager.activeTheme)
-                }
+                // 悬浮键盘开关直接整体重建输入视图：状态一律从偏好重新派生，
+                // 避免原位迁移留下的半应用状态（曾导致开关有时无法关闭）。
+                AppPrefs.Keyboard.FLOATING_KEYBOARD -> replaceInputView(ThemeManager.activeTheme)
 
                 AppPrefs.Keyboard.HIDE_INPUT_BAR -> {
                     if (inputView != null) {
@@ -131,12 +128,46 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
                     }
                 }
 
-                // Only the margins of the bottom row move, so no rebuild is needed.
-                AppPrefs.Keyboard.BOTTOM_TOGGLE_MARGIN -> inputView?.refreshBottomHandleMargin()
+                AppPrefs.Keyboard.FLOATING_KEYBOARD_WIDTH,
+                AppPrefs.Keyboard.FLOATING_KEYBOARD_HEIGHT,
+                -> {
+                    syncKeepRatioDimension(key)
+                    replaceInputView(ThemeManager.activeTheme)
+                }
 
                 else -> replaceInputView(ThemeManager.activeTheme)
             }
         }
+
+    /** Guard against the linked-dimension write-back re-entering [syncKeepRatioDimension]. */
+    private var updatingKeepRatioDimension = false
+
+    /**
+     * 等比缩放开启时，设置页拖动宽/高滑条会让另一个维度按锁定比例自动跟随；
+     * 关闭时宽高各自独立。联动只写偏好，视图随后的 replaceInputView 统一重排。
+     */
+    private fun syncKeepRatioDimension(changedKey: String) {
+        if (updatingKeepRatioDimension) return
+        if (!prefs.keyboard.floatingKeyboardKeepRatio.getValue()) return
+        val view = inputView ?: return
+        val widthPref = prefs.keyboard.floatingKeyboardWidth
+        val heightPref = prefs.keyboard.floatingKeyboardHeight
+        updatingKeepRatioDimension = true
+        try {
+            when (changedKey) {
+                AppPrefs.Keyboard.FLOATING_KEYBOARD_WIDTH -> {
+                    val linked = view.keepRatioHeightFor(widthPref.getValue()).coerceIn(70, 130)
+                    if (linked != heightPref.getValue()) heightPref.setValue(linked)
+                }
+                AppPrefs.Keyboard.FLOATING_KEYBOARD_HEIGHT -> {
+                    val linked = view.keepRatioWidthFor(heightPref.getValue())
+                    if (linked != widthPref.getValue()) widthPref.setValue(linked)
+                }
+            }
+        } finally {
+            updatingKeepRatioDimension = false
+        }
+    }
 
     private var updatingFloatingKeyboardSize = false
 
@@ -160,9 +191,9 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
     private val recreateCandidatesViewListener =
         PreferenceDelegateProvider.OnChangeListener { key ->
             replaceCandidateView(ThemeManager.activeTheme)
-            // The bottom toggle mirrors the mode, so it has to follow a change made in Settings.
             if (key == AppPrefs.Candidates.MODE) {
-                inputView?.refreshCandidatesWindowToggle()
+                // 候选栏与候选窗口切换时清理当前输入，避免残留的候选/预编辑引发意外行为
+                postRimeJob { clearComposition() }
             }
         }
 

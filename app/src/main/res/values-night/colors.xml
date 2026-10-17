@@ -7,20 +7,23 @@ SPDX-License-Identifier: GPL-3.0-or-later
 -->
 
 <resources>
-    <color name="colorPrimary">#80D5D3</color>
-    <color name="colorOnPrimary">#003737</color>
-    <color name="colorPrimaryContainer">#004F50</color>
-    <color name="colorOnPrimaryContainer">#9CF1EF</color>
-    <color name="colorSecondary">#B0CCCA</color>
-    <color name="colorOnSecondary">#1B3534</color>
-    <color name="colorSecondaryContainer">#324B4A</color>
-    <color name="colorOnSecondaryContainer">#CCE8E6</color>
-    <color name="colorSurface">#0E1515</color>
-    <color name="colorOnSurface">#DEE4E3</color>
-    <color name="colorSurfaceVariant">#3F4948</color>
-    <color name="colorOnSurfaceVariant">#BEC9C8</color>
-    <color name="colorOutline">#899392</color>
-    <color name="colorOutlineVariant">#3F4948</color>
+    <!-- Material 3 fallback palette (dark), mirroring the Material Components
+         baseline (`Theme.Material3` dark defaults). Android 12+ replaces it with
+         dynamic colors. -->
+    <color name="colorPrimary">#D0BCFF</color>
+    <color name="colorOnPrimary">#381E72</color>
+    <color name="colorPrimaryContainer">#4F378B</color>
+    <color name="colorOnPrimaryContainer">#EADDFF</color>
+    <color name="colorSecondary">#CCC2DC</color>
+    <color name="colorOnSecondary">#332D41</color>
+    <color name="colorSecondaryContainer">#4A4458</color>
+    <color name="colorOnSecondaryContainer">#E8DEF8</color>
+    <color name="colorSurface">#141218</color>
+    <color name="colorOnSurface">#E6E0E9</color>
+    <color name="colorSurfaceVariant">#49454F</color>
+    <color name="colorOnSurfaceVariant">#CAC4D0</color>
+    <color name="colorOutline">#938F99</color>
+    <color name="colorOutlineVariant">#49454F</color>
     <color name="colorPrimaryDark">#80D5D3</color>
     <color name="colorAccent">#80D5D3</color>
     <color name="colorAccentDark">#4FCCC9</color>

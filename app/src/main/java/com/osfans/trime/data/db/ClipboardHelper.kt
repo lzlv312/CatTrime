@@ -14,7 +14,6 @@ import androidx.room.withTransaction
 import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.prefs.PreferenceDelegate
 import com.osfans.trime.util.WeakHashSet
-import com.osfans.trime.util.compileRegexSet
 import com.osfans.trime.util.matchesAny
 import com.osfans.trime.util.removeRegexSet
 import kotlinx.coroutines.CoroutineScope
@@ -75,52 +74,20 @@ object ClipboardHelper :
         launch { removeOutdated() }
     }
 
-    private val compareRulesPref = clipPref.clipboardCompareRules
-    private val outputRulesPref = clipPref.clipboardOutputRules
-
-    /**
-     * Bumped when either rule set changes so the compiled [compareRules] / [outputRules] are
-     * rebuilt from the preferences.
-     *
-     * Both are user-editable in the settings, and they used to be `by lazy`, which kept the
-     * original rules in force for the life of the process: the edit was accepted and silently did
-     * nothing until the app was killed. Same generation-counter shape as
-     * [ColorManager.colorGeneration], which invalidates the colour caches the same way.
-     *
-     * Volatile because the bump lands on whichever thread committed the preference while the rules
-     * are read from the clipboard coroutine on [Dispatchers.Default].
-     */
-    @Volatile
-    private var rulesGeneration = 0L
-
-    private var compiledRulesGeneration = -1L
-    private var compiledCompareRules: Set<Regex> = emptySet()
-    private var compiledOutputRules: Set<Regex> = emptySet()
-
-    private fun ensureRulesCompiled() {
-        if (compiledRulesGeneration == rulesGeneration) return
-        compiledCompareRules = compileRegexSet(compareRulesPref.getValue(), trim = true)
-        compiledOutputRules = compileRegexSet(outputRulesPref.getValue(), trim = false)
-        compiledRulesGeneration = rulesGeneration
+    private val compareRules: Set<Regex> by lazy {
+        val rules by clipPref.clipboardCompareRules
+        rules
+            .split('\n')
+            .map { Regex(it.trim()) }
+            .toSet()
     }
 
-    /** Deduplication rules: clips are stored with these stripped. */
-    private val compareRules: Set<Regex>
-        get() {
-            ensureRulesCompiled()
-            return compiledCompareRules
-        }
-
-    /** Filter rules: a clip matching any of them is not recorded at all. */
-    private val outputRules: Set<Regex>
-        get() {
-            ensureRulesCompiled()
-            return compiledOutputRules
-        }
-
-    @Keep
-    private val rulesListener = PreferenceDelegate.OnChangeListener<String> { _, _ ->
-        rulesGeneration++
+    private val outputRules: Set<Regex> by lazy {
+        val rules by clipPref.clipboardOutputRules
+        rules
+            .split('\n')
+            .map { Regex(it) }
+            .toSet()
     }
 
     var lastBean: DatabaseBean? = null
@@ -142,9 +109,6 @@ object ClipboardHelper :
         enabledPref.registerOnChangeListener(enabledListener)
         limitListener.onChange(limitPref.key, limitPref.getValue())
         limitPref.registerOnChangeListener(limitListener)
-        // Both rule sets are user-editable, so their compiled caches have to be droppable.
-        compareRulesPref.registerOnChangeListener(rulesListener)
-        outputRulesPref.registerOnChangeListener(rulesListener)
         launch { updateItemCount() }
     }
 
@@ -173,18 +137,11 @@ object ClipboardHelper :
         updateItemCount()
     }
 
-    /**
-     * Deletes clipboard entries.
-     *
-     * Defaults to [BulkDeleteScope.KEEP_PINNED]: a pinned entry is one the user deliberately kept,
-     * so bulk deletion has to leave it alone. Wiping the whole table is opt-in and has to be spelled
-     * [BulkDeleteScope.ALL] at the call site.
-     */
-    suspend fun deleteAll(scope: BulkDeleteScope = BulkDeleteScope.KEEP_PINNED) {
-        if (scope.removesPinned) {
-            clbDao.deleteAll()
-        } else {
+    suspend fun deleteAll(skipUnpinned: Boolean = true) {
+        if (skipUnpinned) {
             clbDao.deleteAllUnpinned()
+        } else {
+            clbDao.deleteAll()
         }
         updateItemCount()
     }

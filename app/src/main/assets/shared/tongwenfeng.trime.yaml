@@ -4060,6 +4060,9 @@ preset_keys:
   Settings: {label: 设置, functional: false, send: SETTINGS}
   hide_key_symbol: {label: 隐藏符号, send: FUNCTION, command: switch_hide_key_symbol}
   hide_key_hint: {label: 隐藏注解, send: FUNCTION, command: switch_hide_key_hint}
+  hide_input_bar: {label: 隐藏工具栏, send: FUNCTION, command: switch_hide_input_bar}
+  candidates_window_mode: {label: 切换候选窗口, send: FUNCTION, command: switch_candidates_window}
+  floating_keyboard_mode: {label: 切换悬浮键盘, send: FUNCTION, command: switch_floating_keyboard}
   # trime命令
   Date: {label: 日期, send: FUNCTION, command: date, option: " yyyy-MM-dd "}
   Time: {label: 時間, send: FUNCTION, command: date, option: "HH:mm:ss"} #時間： date 格式

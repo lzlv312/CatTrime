@@ -6,9 +6,13 @@
 package com.osfans.trime.util
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.Outline
+import android.graphics.PixelFormat
 import android.graphics.Rect
-import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.view.Gravity
@@ -24,9 +28,9 @@ import androidx.annotation.AttrRes
 import androidx.annotation.ColorInt
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
+import androidx.core.content.res.use
 import splitties.dimensions.dp
 import splitties.resources.drawable
-import splitties.resources.styledColor
 import splitties.resources.styledDrawable
 import splitties.views.dsl.core.withTheme
 import kotlin.math.max
@@ -63,6 +67,29 @@ class ImePopupMenu(anchor: View) {
             cornerRadius = ctx.dp(12).toFloat()
         }
 
+    /**
+     * The window background: it paints nothing (the visible panel is [panelBackground] on [rows]),
+     * but it hands the popup an outline, which is what the elevation shadow needs. `PopupWindow`
+     * elevates exactly the view that owns its background drawable and lets that view cast the
+     * shadow from its outline — a plain transparent background has an empty outline, so the
+     * elevation set on the popup would never produce one. Reporting the panel's rounded rect here
+     * gives the menu a shadow that follows its corners. Reporting `TRANSLUCENT` keeps the window
+     * format translucent: the popup's pixel format is taken from the background's opacity, and an
+     * opaque one would fill the area outside the rounded corners with black.
+     */
+    private val panelOutline =
+        object : Drawable() {
+            override fun draw(canvas: Canvas) = Unit
+            override fun setAlpha(alpha: Int) = Unit
+            override fun setColorFilter(colorFilter: ColorFilter?) = Unit
+
+            @Deprecated("Deprecated in Java")
+            override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+            override fun getOutline(outline: Outline) {
+                outline.setRoundRect(bounds, ctx.dp(12).toFloat())
+            }
+        }
+
     private val rows =
         LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -88,10 +115,11 @@ class ImePopupMenu(anchor: View) {
             // Both of these matter, see the class comment.
             isFocusable = false
             inputMethodMode = PopupWindow.INPUT_METHOD_NOT_NEEDED
-            // A transparent background plus outside touch is what makes a popup dismiss on a tap
-            // outside it; the visible background lives on the content instead.
+            // Outside touch is what makes a popup dismiss on a tap outside it; the visible
+            // background lives on the content, while the window background only carries the
+            // outline the elevation shadow is cast from (see [panelOutline]).
             isOutsideTouchable = true
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            setBackgroundDrawable(panelOutline)
             elevation = ctx.dp(8).toFloat()
             setOnDismissListener { onDismiss?.invoke() }
         }
@@ -102,14 +130,23 @@ class ImePopupMenu(anchor: View) {
     val isShowing: Boolean get() = popup.isShowing
 
     /**
-     * `splitties`' [styledColor] reads an attribute as a plain colour, but several of the
-     * attributes used here are declared as state lists, which `TypedArray.getColor` refuses.
-     * Fall back instead of crashing on those.
+     * Resolves a themed colour attribute to a concrete colour int.
+     *
+     * Two traps live here. `splitties`' [styledColor] reads the attribute with
+     * `TypedArray.getColor`, which only handles direct colour ints — an attribute backed by a
+     * colour *state list* (as most framework text colours are) silently comes back as the
+     * fallback, i.e. transparent. And `TypedArray.getColor` throws for references it cannot
+     * coerce. Going through [getColorStateList] handles both: state lists resolve to their
+     * default colour, direct colours still work, and anything unresolved falls back.
      */
     private fun colorOf(
         @AttrRes attr: Int,
         fallback: Int,
-    ): Int = runCatching { ctx.styledColor(attr) }.getOrDefault(fallback)
+    ): Int = runCatching {
+        ctx.obtainStyledAttributes(intArrayOf(attr)).use { ta ->
+            ta.getColorStateList(0)?.defaultColor ?: fallback
+        }
+    }.getOrDefault(fallback)
 
     private fun addRow(
         title: CharSequence,
