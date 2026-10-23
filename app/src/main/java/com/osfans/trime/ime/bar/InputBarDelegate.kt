@@ -247,10 +247,21 @@ class InputBarDelegate : InputBroadcastReceiver {
         )
     }
 
+    /**
+     * 输入栏显隐变化（隐藏工具栏、液态/Tab 态切换）。
+     *
+     * 显隐由状态机直接写 [ViewAnimator.visibility]，没有可挂载的回调，而输入栏在
+     * [com.osfans.trime.ime.core.InputView] 里还包着一层按档位缩放的外壳——外壳必须与
+     * 输入栏同时显隐，否则隐藏工具栏后它继续占着工具栏高度，卡片顶部留下一条空白。
+     * 必须在这一刻同步而不是等下一次布局：布局中改显隐只会让当前这轮已经量过的尺寸作废。
+     */
+    var onBarVisibilityChanged: ((Int) -> Unit)? = null
+
     private fun switchUiByState(state: QuickBarStateMachine.State) {
         val index = state.ordinal
         view.visibility =
             if (shouldShowInputBar(hideQuickBar, state)) View.VISIBLE else View.GONE
+        onBarVisibilityChanged?.invoke(view.visibility)
         view.background = barBackground(state)
         if (view.displayedChild == index) return
         val new = view.getChildAt(index)

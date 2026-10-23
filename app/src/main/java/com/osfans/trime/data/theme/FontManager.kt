@@ -74,6 +74,37 @@ object FontManager {
         }
     }
 
+    /**
+     * Builds a typeface from an explicit list of font files in the user `fonts/` directory.
+     *
+     * Used by theme-provided UI text (e.g. `menu_keyboard/fonts`): the listed fonts take
+     * precedence, and missing glyphs fall back to the system font.
+     */
+    fun getTypefaceForFiles(fontNames: List<String>): Typeface? {
+        if (fontNames.isEmpty()) return null
+        val cacheKey = "files:" + fontNames.joinToString("|")
+        typefaceCache[cacheKey]?.let { return it }
+        val typeface =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val fontFamilies = fontNames.mapNotNull { getFontFamily(it) }
+                if (fontFamilies.isEmpty()) {
+                    Typeface.DEFAULT
+                } else {
+                    Typeface.CustomFallbackBuilder(fontFamilies.first()).apply {
+                        fontFamilies.drop(1).forEach { addCustomFallback(it) }
+                        setSystemFallback("sans-serif")
+                    }.build()
+                }
+            } else {
+                fontNames
+                    .firstNotNullOfOrNull { name ->
+                        File(fontDir, name).takeIf { it.exists() }?.let { Typeface.createFromFile(it) }
+                    } ?: Typeface.DEFAULT
+            }
+        typefaceCache[cacheKey] = typeface
+        return typeface
+    }
+
     @RequiresApi(Build.VERSION_CODES.Q)
     private fun buildTypeface(fontFamilies: List<FontFamily>): Typeface {
         if (fontFamilies.isEmpty()) return Typeface.DEFAULT

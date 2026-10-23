@@ -106,12 +106,8 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
         prefs.keyboard.floatingKeyboardWidth,
         prefs.keyboard.floatingKeyboardHeight,
         prefs.keyboard.floatingKeyboardKeepRatio,
-        // 拖动条位置（顶部/底部）在 InputView 构建时读取并决定标题栏摆放，
-        // 切换后必须整体重建输入视图才能实时生效。
-        prefs.keyboard.floatingKeyboardBarPosition,
         prefs.keyboard.floatingKeyboardCornerRadius,
-        prefs.keyboard.floatingPreeditOffsetX,
-        prefs.keyboard.floatingPreeditOffsetY,
+        prefs.keyboard.floatingPreeditInsetX,
         prefs.keyboard.expandKeypressArea,
         prefs.keyboard.hideKeySymbol,
         prefs.keyboard.hideKeyHint,
@@ -212,18 +208,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
             }
         }
 
-    /** Prefs that only resize the popup candidate window's row, so no rebuild is needed. */
-    private val refreshCandidatesRowPrefs: Array<PreferenceDelegate<*>> = arrayOf(
-        prefs.keyboard.maxSpanCount,
-        prefs.keyboard.maxSpanCountLandscape,
-    )
-
-    @Keep
-    private val refreshCandidatesRowListener =
-        PreferenceDelegate.OnChangeListener<Any> { _, _ ->
-            candidatesView?.refreshSlotLayout()
-        }
-
     @Keep
     private val onThemeChangeListener =
         ThemeManager.OnThemeChangeListener {
@@ -292,9 +276,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
             it.registerOnChangeListener(recreateInputViewListener)
         }
         prefs.candidates.registerOnChangeListener(recreateCandidatesViewListener)
-        refreshCandidatesRowPrefs.forEach {
-            it.registerOnChangeListener(refreshCandidatesRowListener)
-        }
         // ensure theme and color managers are initialized after rime is ready
         lifecycleScope.launch {
             rime.runOnReady {
@@ -481,9 +462,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
             it.unregisterOnChangeListener(recreateInputViewListener)
         }
         prefs.candidates.unregisterOnChangeListener(recreateCandidatesViewListener)
-        refreshCandidatesRowPrefs.forEach {
-            it.unregisterOnChangeListener(refreshCandidatesRowListener)
-        }
         ThemeManager.removeOnChangedListener(onThemeChangeListener)
         ColorManager.removeOnChangedListener(onColorChangeListener)
         super.onDestroy()

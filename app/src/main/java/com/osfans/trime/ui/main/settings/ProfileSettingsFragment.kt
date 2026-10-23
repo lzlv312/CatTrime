@@ -28,6 +28,7 @@ import com.osfans.trime.ui.main.MainViewModel
 import com.osfans.trime.util.ResourceUtils
 import com.osfans.trime.util.addCategory
 import com.osfans.trime.util.addPreference
+import com.osfans.trime.util.buildDocumentsProviderIntent
 import com.osfans.trime.util.customFormatTimeInDefault
 import com.osfans.trime.util.getFileFromUri
 import com.osfans.trime.util.getUriForFile
@@ -222,6 +223,16 @@ class ProfileSettingsFragment : PaddingPreferenceFragment() {
             }
             addCategory(R.string.maintenance) {
                 isIconSpaceReserved = false
+                addPreference(
+                    title = getString(R.string.browse_app_data_dir),
+                    summary = DataManager.sharedDataDir.parentFile?.absolutePath ?: "",
+                ) {
+                    runCatching {
+                        ctx.startActivity(buildDocumentsProviderIntent())
+                    }.onFailure {
+                        ctx.toast(R.string.browse_app_data_dir_failed)
+                    }
+                }
                 addPreference(R.string.reset, R.string.reset_hint) {
                     val items = ctx.assets.list("shared") ?: return@addPreference
                     val checked = BooleanArray(items.size) { false }

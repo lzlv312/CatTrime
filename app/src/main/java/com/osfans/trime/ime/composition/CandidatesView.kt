@@ -6,15 +6,16 @@
 package com.osfans.trime.ime.composition
 
 import android.annotation.SuppressLint
-import android.content.res.Configuration
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.view.Gravity
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.view.ViewTreeObserver.OnGlobalLayoutListener
 import android.view.ViewTreeObserver.OnPreDrawListener
 import android.view.WindowInsets
+import android.widget.LinearLayout
 import androidx.annotation.Size
 import androidx.core.graphics.component1
 import androidx.core.graphics.component2
@@ -29,6 +30,7 @@ import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.ColorManager
 import com.osfans.trime.data.theme.Theme
 import com.osfans.trime.ime.candidates.popup.PagedCandidatesUi
+import com.osfans.trime.ime.candidates.popup.PaginationUi
 import com.osfans.trime.ime.candidates.popup.resolvedHorizontalLayout
 import com.osfans.trime.ime.core.BaseInputView
 import com.osfans.trime.ime.core.TouchEventReceiverWindow
@@ -36,11 +38,15 @@ import com.osfans.trime.ime.core.TrimeInputMethodService
 import splitties.dimensions.dp
 import splitties.views.dsl.constraintlayout.below
 import splitties.views.dsl.constraintlayout.bottomOfParent
+import splitties.views.dsl.constraintlayout.bottomToBottomOf
 import splitties.views.dsl.constraintlayout.centerHorizontally
+import splitties.views.dsl.constraintlayout.endOfParent
+import splitties.views.dsl.constraintlayout.endToStartOf
 import splitties.views.dsl.constraintlayout.lParams
 import splitties.views.dsl.constraintlayout.matchConstraints
 import splitties.views.dsl.constraintlayout.startOfParent
 import splitties.views.dsl.constraintlayout.topOfParent
+import splitties.views.dsl.constraintlayout.topToTopOf
 import splitties.views.dsl.core.add
 import splitties.views.dsl.core.withTheme
 import splitties.views.dsl.core.wrapContent
@@ -68,35 +74,6 @@ class CandidatesView(
 
     private var candidates = Candidates.Paged()
     private var composition = CompositionProto()
-
-    /**
-     * Offset of the first candidate the window shows.
-     *
-     * Only a new page or a new "candidates per line" setting resets it (see [updateUi]); the
-     * window's arrows move it within the page without Rime being involved.
-     */
-    private var slotOffset = 0
-    private var lastPage: Candidates.Paged? = null
-    private var lastPerLine = 0
-
-    /** Whether the previous update laid the candidates out as a row; a flip re-derives the slot. */
-    private var lastHorizontal = false
-
-    /**
-     * How many candidates the last laid-out window held -- the step the arrows take.
-     *
-     * Only a stacked (vertical) window is cut into several windows; a row shows the whole page,
-     * so its capacity is the page size and a step leaves the page for Rime immediately.
-     */
-    private var lastCapacity = 0
-
-    /**
-     * Window offsets visited by the arrows within the current page, oldest first.
-     *
-     * A slice always holds the same number of candidates ([lastCapacity]), but a page's last
-     * window may be shorter; replaying the offsets is what keeps a backward step exact.
-     */
-    private val windowHistory = ArrayDeque<Int>()
 
     private val anchorPosition = RectF()
     private val parentSize = floatArrayOf(0f, 0f)
@@ -139,13 +116,44 @@ class CandidatesView(
             onMoveCursor = { pos -> rime.launchOnReady { it.moveCursorPos(pos) } },
         )
 
+    /**
+     * 纵向布局的翻页提示：顶行最右缘的小箭头，只表示本页是否还有上/下页。
+     * 点击直接让 Rime 换页，只是不再占候选列表的一整行。
+     */
+    private val paginationIndicator =
+        PaginationUi(ctx, theme).apply {
+            setIndicatorMode()
+            prevIcon.setOnClickListener { turnPage(forward = false) }
+            nextIcon.setOnClickListener { turnPage(forward = true) }
+            root.visibility = GONE
+        }
+
+    /**
+     * 窗口顶行：预编辑。纵向翻页提示不再放在这里，而是作为同级视图固定在窗口右缘
+     * （见 [init]），这样候选很长、预编辑很短时提示器也贴着右边缘，不会停在中间。
+     */
+    private val headerUi =
+        object : LinearLayout(ctx) {
+            init {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(
+                    preeditUi.root,
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ),
+                )
+            }
+        }
+
     // 显式类型：onCandidateAction 回调里引用了 candidatesUi 自身（toggleFullDisplay），
     // 省略类型会让编译器陷入递归推断。
     private val candidatesUi: PagedCandidatesUi =
         PagedCandidatesUi(
             ctx,
             theme,
-            onCandidateClick = { index -> rime.launchOnReady { it.selectCandidate(index + slotOffset, global = false) } },
+            onCandidateClick = { index -> rime.launchOnReady { it.selectCandidate(index, global = false) } },
             onCandidateAction = { index, text, view ->
                 // 仅当注解确实被截断且尚未展开时才提供「完整显示」：未截断的候选
                 // 没有可展开内容，已展开的无需再展开，菜单项都不出现。
@@ -155,10 +163,10 @@ class CandidatesView(
                     } else {
                         null
                     }
-                showCandidateActionMenu(index + slotOffset, text, view, global = false, toggle)
+                showCandidateActionMenu(index, text, view, global = false, toggle)
             },
-            onPrevPage = { stepRow(forward = false) },
-            onNextPage = { stepRow(forward = true) },
+            onPrevPage = { turnPage(forward = false) },
+            onNextPage = { turnPage(forward = true) },
         )
 
     private val touchEventReceiverWindow = TouchEventReceiverWindow(this)
@@ -185,39 +193,12 @@ class CandidatesView(
     private fun updateUi() {
         preeditUi.update(composition)
         preeditUi.root.visibility = if (preeditUi.visible) VISIBLE else GONE
-        val perLine = perLine()
-        val page = candidates
-        // A row shows the whole page, so there is no window to move through and no offset to
-        // keep: the arrows turn Rime's pages. Only the stacked layout is cut into windows.
         val horizontal = resolvedHorizontalLayout(candidates, layout)
-        // A flip between the row and the stack is as good as a new page: the old offset described
-        // a window of the other layout (and a row always sits at 0), so the stack has to reopen on
-        // whatever Rime highlights instead of keeping an offset that may hide it.
-        val layoutChanged = horizontal != lastHorizontal
-        slotOffset =
-            when {
-                horizontal -> {
-                    windowHistory.clear()
-                    0
-                }
-                // A new page (or a new per-line count) puts the window back onto whatever Rime
-                // highlights: browsing is a detour within a page, not a state that outlives it.
-                layoutChanged || page != lastPage || perLine != lastPerLine -> {
-                    windowHistory.clear()
-                    slotOffsetFor(page.highlighted, perLine)
-                }
-                else ->
-                    slotOffset.coerceAtMost(
-                        lastSlotOffset(page.candidates.size, lastCapacity.coerceAtLeast(1)),
-                    )
-            }
-        lastPage = page
-        lastPerLine = perLine
-        lastHorizontal = horizontal
-        val window = candidateWindow(page, slotOffset, perLine, horizontal)
+        val showIndicator = !horizontal && (candidates.hasPrevPage || candidates.hasNextPage)
+        updatePreeditMaxWidth(reserveIndicator = showIndicator)
         // the candidate layout is queried natively with the page itself
-        candidatesUi.update(window.page, layout, usableRowWidth().toInt())
-        lastCapacity = window.capacity
+        candidatesUi.update(candidates, layout, usableRowWidth().toInt())
+        updatePaginationIndicator(candidates, showIndicator)
         visibility = if (evaluateVisibility()) {
             VISIBLE
         } else {
@@ -226,27 +207,21 @@ class CandidatesView(
         }
     }
 
+    private var preeditMaxWidth = -1
+
     /**
-     * How many candidates this window shows at once: the "max candidates per row" setting.
-     *
-     * The candidates drawn on the keyboard and this window are the same widget, so the setting is
-     * the authority for both. It applies to a vertical layout too. There is no "row" to count
-     * there, but this window is anchored to the cursor, so an unbounded stack would cover the
-     * screen -- the same number caps it instead, and the arrows step the stack the way they step
-     * a row.
-     *
-     * Settings only allows editing the value while the keyboard's candidate mode fills the row,
-     * but the value applies either way.
+     * 预编辑最多能用窗口可用宽度减去纵向翻页指示器的宽度，超出部分换行。
+     * 这样预编码再长也不会把指示器顶出窗口右侧。
      */
-    private fun perLine(): Int {
-        val keyboard = AppPrefs.defaultInstance().keyboard
-        val count =
-            if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                keyboard.maxSpanCount.getValue()
-            } else {
-                keyboard.maxSpanCountLandscape.getValue()
-            }
-        return count.coerceAtLeast(1)
+    private fun updatePreeditMaxWidth(reserveIndicator: Boolean) {
+        val reserved = if (reserveIndicator) dp(PaginationUi.INDICATOR_WIDTH_DP.toFloat()) else 0f
+        val maxWidth = usableRowWidth() - reserved
+        if (maxWidth <= 0f) return
+        val px = maxWidth.toInt()
+        if (preeditMaxWidth != px) {
+            preeditMaxWidth = px
+            preeditUi.preedit.maxWidth = px
+        }
     }
 
     /** Width the row may occupy: the parent, less the window's own spacing budget and padding. */
@@ -257,43 +232,33 @@ class CandidatesView(
     }
 
     /**
-     * Moves the window one step within the page, and hands the step over to Rime once it has
-     * reached the end of the page. No candidate is ever skipped: the step is the window's capacity,
-     * and the arrows turn the page only after every window of it has been shown.
+     * 翻页：候选窗口整页显示，箭头直接让 Rime 换页。每页显示多少条由用户的
+     * 页面大小（`menu/page_size`）决定，窗口不再按行数二次切片。
      */
-    private fun stepRow(forward: Boolean) {
-        if (!forward) {
-            // Replay where the row came from; offsets the arrows did not produce (a page reset
-            // puts the window on the highlighted candidate) fall back to a plain step back.
-            val previous =
-                windowHistory.removeLastOrNull()
-                    ?: steppedSlotOffset(slotOffset, stepSize(), candidates.candidates.size, false)
-            if (previous == null) {
-                rime.launchOnReady { it.changeCandidatePage(true) }
-                return
-            }
-            slotOffset = previous
-            updateUi()
-            return
-        }
-        // Step by what the window showed, not by the setting's maximum: a row that could only fit
-        // half of it would otherwise jump over the candidates in between.
-        val next = steppedSlotOffset(slotOffset, stepSize(), candidates.candidates.size, true)
-        if (next == null) {
-            rime.launchOnReady { it.changeCandidatePage(false) }
-            return
-        }
-        windowHistory.addLast(slotOffset)
-        slotOffset = next
-        updateUi()
+    private fun turnPage(forward: Boolean) {
+        rime.launchOnReady { it.changeCandidatePage(backward = !forward) }
     }
 
-    /** How far a step moves the window: what the last one actually showed. */
-    private fun stepSize(): Int = lastCapacity.takeIf { it > 0 } ?: perLine()
-
-    /** Re-derives the row after a setting that sizes it changed, without rebuilding this view. */
-    fun refreshSlotLayout() {
-        updateUi()
+    /**
+     * 纵向布局的翻页提示只在确有可翻内容时出现，横向布局则由候选行尾的内联翻页条
+     * （见 [PagedCandidatesUi]）负责，顶行指示器隐藏。
+     */
+    private fun updatePaginationIndicator(
+        page: Candidates.Paged,
+        show: Boolean,
+    ) {
+        paginationIndicator.update(page)
+        paginationIndicator.root.visibility = if (show) VISIBLE else GONE
+        // 预编辑不显示时顶行高度为 0，翻页组会压到候选行上；至少给它留出自身高度。
+        val minHeaderHeight =
+            if (show) {
+                dp(PaginationUi.INDICATOR_HEIGHT_DP.toFloat()).toInt()
+            } else {
+                0
+            }
+        if (headerUi.minimumHeight != minHeaderHeight) {
+            headerUi.minimumHeight = minHeaderHeight
+        }
     }
 
     /** This window's background: the theme's own decoration, faded by the opacity setting. */
@@ -485,17 +450,32 @@ class CandidatesView(
         outlineProvider = ViewOutlineProvider.BACKGROUND
         elevation = dp(theme.window.shadow)
         add(
-            preeditUi.root,
+            headerUi,
             lParams(wrapContent, wrapContent) {
                 topOfParent()
                 startOfParent()
+                // 预编辑最多只能用到翻页组以左，超长时在剩余宽度内换行，
+                // 翻页组因此不会像以前那样被顶出窗口。
+                // 两端都有约束时默认居中，必须显式靠左，短预编辑才会贴着窗口左边。
+                horizontalBias = 0f
+                endToStartOf(paginationIndicator.root)
+            },
+        )
+        add(
+            paginationIndicator.root,
+            lParams(wrapContent, wrapContent) {
+                // 与顶行上下对齐后居中：预编辑行比 20dp 的箭头组略高，
+                // 只贴顶会让箭头看起来比文字更靠上。
+                topToTopOf(headerUi)
+                bottomToBottomOf(headerUi)
+                endOfParent()
             },
         )
         add(
             candidatesUi.root,
             lParams(matchConstraints, wrapContent) {
                 matchConstraintMinWidth = wrapContent
-                below(preeditUi.root)
+                below(headerUi)
                 centerHorizontally()
                 bottomOfParent()
             },

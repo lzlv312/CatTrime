@@ -117,6 +117,27 @@ object ColorManager {
         get() = this::_activeColorScheme.isInitialized && _activeColorScheme.id == DynamicColorScheme.ID
 
     /**
+     * Whether the active colour scheme is the dark one of its day/night pair.
+     *
+     * The pair relation is the one [evaluateActiveColorScheme] already works with: a scheme that
+     * carries `dark_scheme` is the light variant, one that carries `light_scheme` is the dark
+     * variant. A scheme carrying both (or neither) is not a variant itself, so the system flag
+     * decides, which is also what happens for the dynamic scheme.
+     */
+    val isDarkSchemeActive: Boolean
+        get() {
+            if (!this::_activeColorScheme.isInitialized) return isNightMode
+            val links = _activeColorScheme.colors
+            val hasLight = !links["light_scheme"].isNullOrEmpty()
+            val hasDark = !links["dark_scheme"].isNullOrEmpty()
+            return when {
+                hasLight && !hasDark -> true
+                hasDark && !hasLight -> false
+                else -> isNightMode
+            }
+        }
+
+    /**
      * Everything the user can pick between: the theme's presets plus the built-in system dynamic
      * scheme.
      *

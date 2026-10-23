@@ -76,19 +76,23 @@ object ClipboardHelper :
 
     private val compareRules: Set<Regex> by lazy {
         val rules by clipPref.clipboardCompareRules
-        rules
-            .split('\n')
-            .map { Regex(it.trim()) }
-            .toSet()
+        rules.compileRegexSet(trimWhitespace = true)
     }
 
     private val outputRules: Set<Regex> by lazy {
         val rules by clipPref.clipboardOutputRules
-        rules
-            .split('\n')
-            .map { Regex(it) }
-            .toSet()
+        rules.compileRegexSet(trimWhitespace = false)
     }
+
+    private fun String.compileRegexSet(trimWhitespace: Boolean): Set<Regex> = split('\n')
+        .map { if (trimWhitespace) it.trim() else it }
+        .filter { it.isNotEmpty() }
+        .mapNotNull { pattern ->
+            runCatching { Regex(pattern) }
+                .onFailure { Timber.w("Invalid clipboard regex \"$pattern\": ${it.message}") }
+                .getOrNull()
+        }
+        .toSet()
 
     var lastBean: DatabaseBean? = null
 

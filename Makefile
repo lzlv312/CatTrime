@@ -48,6 +48,16 @@ style-apply: spotlessApply clang-format
 
 patch-apply:
 	-git apply --directory=$(jniDir)/librime-lua-deps patches/lua.patch
+	@if git apply --directory=$(jniDir)/librime --check patches/detect-modifications.patch 2>/dev/null; then \
+		git apply --directory=$(jniDir)/librime patches/detect-modifications.patch; \
+		echo "applied patches/detect-modifications.patch"; \
+	elif git apply --directory=$(jniDir)/librime --reverse --check patches/detect-modifications.patch 2>/dev/null; then \
+		echo "patches/detect-modifications.patch already applied"; \
+	else \
+		echo "error: patches/detect-modifications.patch does not apply to $(jniDir)/librime;" >&2; \
+		echo "the librime submodule probably moved, regenerate the patch" >&2; \
+		exit 1; \
+	fi
 
 debug: patch-apply
 	$(GRADLEW) :app:assembleDebug

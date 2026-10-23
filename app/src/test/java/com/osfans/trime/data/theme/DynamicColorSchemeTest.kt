@@ -105,10 +105,9 @@ class DynamicColorSchemeTest :
                     day.tone("key_back_color") shouldBeGreaterThan day.tone("back_color")
                     day.tone("back_color") shouldBe 10
                 }
-                Then("the preedit shares the window background, not the key surface") {
-                    // 预编辑区贴在键盘上方；取 keySurface 会叠出一层浅灰。
-                    day.tone("text_back_color") shouldBe day.tone("back_color")
-                    night.tone("text_back_color") shouldBe night.tone("back_color")
+                Then("the preedit shares the key surface") {
+                    day.tone("text_back_color") shouldBe day.tone("key_back_color")
+                    night.tone("text_back_color") shouldBe night.tone("key_back_color")
                 }
                 Then("a key that is toggled on is solid primary") {
                     day.tone("on_key_back_color") shouldBe day.tone("hilited_key_back_color")
@@ -141,7 +140,7 @@ class DynamicColorSchemeTest :
                 day["hilited_candidate_button_color"] shouldBe day["hilited_candidate_back_color"]
                 night["hilited_candidate_button_color"] shouldBe night["hilited_candidate_back_color"]
             }
-            Then("the key preview sits on the key surface, not on an accent") {
+            Then("the legacy key preview follows the schema default, the key surface") {
                 day["preview_back_color"] shouldBe day["key_back_color"]
                 day["preview_text_color"] shouldBe day["key_text_color"]
                 night["preview_back_color"] shouldBe night["key_back_color"]

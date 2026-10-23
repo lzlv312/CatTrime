@@ -8,6 +8,7 @@ package com.osfans.trime.ime.switches
 import androidx.annotation.DrawableRes
 import com.osfans.trime.core.RimeSchema
 import com.osfans.trime.daemon.RimeSession
+import com.osfans.trime.data.theme.model.MenuKeyboard
 
 sealed class SwitchOptionEntry(
     val label: String,
@@ -28,13 +29,30 @@ sealed class SwitchOptionEntry(
         label: String,
         icon: Int,
         /**
-         * Index into [RimeSchema.Switch.states] that is currently on, or -1 when no option is on.
-         *
-         * Only a switch that declares `options` in the schema yaml offers its states as a list, and
-         * that list marks this index; a plain on/off switch ignores it.
+         * Index into [RimeSchema.Switch.states] that the menu marks as current. For an
+         * `options` switch it follows the option that is on; 0 otherwise — librime applies
+         * `reset` at schema load, so an all-off radio group only means `reset` was undeclared
+         * or out of range, whose default state is 0 (switches.cc `Reset`).
          */
-        val selectedIndex: Int = -1,
+        val selectedIndex: Int,
     ) : SwitchOptionEntry(label, icon)
+
+    /**
+     * 功能面板条目，来自主题 `menu_keyboard/items`。
+     *
+     * [iconStyle] 是图标位的背景图片，已按生效配色的深浅解析好；非图片的 icons 视同未配置。
+     * [iconText] 是图标位的文字，取自预设键（双态为当前 state，否则为预设键 label），与
+     * 条目 label 无关；为空时图标位回落显示条目 label。渲染规则见 [SwitchOptionEntryUi]。
+     *
+     * [isOn] 仅双态条目为真：当前 Rime 选项开启，label 用高亮色显示。
+     */
+    class Menu(
+        val item: MenuKeyboard.Item,
+        label: String,
+        val iconStyle: String = "",
+        val iconText: String = "",
+        val isOn: Boolean = false,
+    ) : SwitchOptionEntry(label, 0)
 
     companion object {
         fun fromSwitch(
@@ -66,9 +84,6 @@ sealed class SwitchOptionEntry(
                 val options = it.options
                 if (options.size != labels.size) return null
                 val index = options.indexOfFirst(isOptionOn)
-                // 全部 option 都未开（比如新会话还没人设置过）时，rime 的默认态就是第
-                // 一个 option；label 与勾选必须回落到同一个状态，否则标签显示状态 0、
-                // 勾选却一个都不亮。
                 val selectedIndex = if (index >= 0) index else 0
                 Custom(it, labels[selectedIndex], 0, selectedIndex)
             }

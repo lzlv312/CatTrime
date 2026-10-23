@@ -1,0 +1,103 @@
+diff --git a/src/rime/lever/deployment_tasks.cc b/src/rime/lever/deployment_tasks.cc
+index 6e6ff895..31006e66 100644
+--- a/src/rime/lever/deployment_tasks.cc
++++ b/src/rime/lever/deployment_tasks.cc
+@@ -43,27 +43,56 @@ DetectModifications::DetectModifications(TaskInitializer arg) {
+ 
+ bool DetectModifications::Run(Deployer* deployer) {
+   time_t last_modified = 0;
+-  try {
+-    for (auto dir : data_dirs_) {
+-      path p = fs::canonical(dir);
+-      last_modified = (std::max)(last_modified,
+-                                 filesystem::to_time_t(fs::last_write_time(p)));
+-      if (fs::is_directory(p)) {
+-        for (fs::directory_iterator iter(p), end; iter != end; ++iter) {
+-          path entry(iter->path());
+-          if (fs::is_regular_file(fs::canonical(entry)) &&
+-              entry.extension().u8string() == ".yaml" &&
+-              entry.filename().u8string() != "user.yaml") {
+-            last_modified =
+-                (std::max)(last_modified,
+-                           filesystem::to_time_t(fs::last_write_time(entry)));
+-          }
+-        }
++  string newest_entry;
++  const time_t now = time(NULL);
++  for (auto dir : data_dirs_) {
++    std::error_code ec;
++    path p = fs::canonical(dir, ec);
++    if (ec) {
++      LOG(WARNING) << "cannot inspect data dir '" << dir << "': " << ec.message();
++      continue;
++    }
++    if (!fs::is_directory(p, ec)) {
++      LOG(WARNING) << "data dir '" << p << "' is not a directory.";
++      continue;
++    }
++    // The mtime of the directory itself is deliberately not compared: creating
++    // build/, *.userdb/, trash/ or sync/ entries is not a configuration change,
++    // and on Android emulated storage the timestamp is not reliable anyway.
++    for (fs::directory_iterator iter(p, ec), end; iter != end; iter.increment(ec)) {
++      if (ec) {
++        LOG(WARNING) << "error listing '" << p << "': " << ec.message();
++        break;
++      }
++      path entry(iter->path());
++      if (entry.extension().u8string() != ".yaml" ||
++          entry.filename().u8string() == "user.yaml") {
++        continue;
++      }
++      std::error_code entry_ec;
++      // canonical() follows symlinks and fails on dangling ones; skip such
++      // entries instead of treating them as a modification.
++      path real_entry = fs::canonical(entry, entry_ec);
++      if (entry_ec || !fs::is_regular_file(real_entry, entry_ec)) {
++        continue;
++      }
++      auto write_time = fs::last_write_time(real_entry, entry_ec);
++      if (entry_ec) {
++        continue;
++      }
++      time_t stamp = filesystem::to_time_t(write_time);
++      // Restored backups and clock skew can leave mtimes in the future. Such a
++      // stamp would stay newer than every later build and force a deployment on
++      // each startup, so ignore it.
++      if (stamp > now) {
++        LOG(WARNING) << "ignoring future timestamp of '" << entry << "'.";
++        continue;
++      }
++      if (stamp > last_modified) {
++        last_modified = stamp;
++        newest_entry = entry.u8string();
+       }
+     }
+-  } catch (const fs::filesystem_error& ex) {
+-    LOG(ERROR) << "Error reading file information: " << ex.what();
+-    return true;
+   }
+ 
+   // TODO: store as 64-bit number to avoid the year 2038 problem
+@@ -73,7 +102,9 @@ bool DetectModifications::Run(Deployer* deployer) {
+     user_config->GetInt("var/last_build_time", &last_build_time);
+   }
+   if (last_modified > (time_t)last_build_time) {
+-    LOG(INFO) << "modifications detected. workspace needs update.";
++    LOG(INFO) << "modifications detected: '" << newest_entry << "' modified at "
++              << last_modified << ", newer than last build at "
++              << last_build_time << ".";
+     return true;
+   }
+   return false;
+@@ -250,6 +281,11 @@ bool WorkspaceUpdate::Run(Deployer* deployer) {
+   the<Config> user_config(Config::Require("user_config")->Create("user"));
+   // TODO: store as 64-bit number to avoid the year 2038 problem
+   user_config->SetInt("var/last_build_time", (int)time(NULL));
++  // Save right away: the config is also cached by the component and would
++  // otherwise only be written when the engine tears down, so a process kill
++  // between deployment and teardown would lose the new timestamp and trigger
++  // another deployment on the next start.
++  user_config->Save();
+ 
+   return failure == 0;
+ }
