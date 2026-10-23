@@ -34,8 +34,9 @@ class PaginationUi(
     ) = imageView {
         imageTintList = ColorStateList.valueOf(ColorManager.getColor("key_text_color"))
         imageDrawable = drawable(icon)
-        // 居中不缩放：触摸区放大后图标视觉尺寸保持 24dp，不随按钮拉伸变形
-        scaleType = ImageView.ScaleType.CENTER
+        // 等比缩放：按钮盒与图标尺寸不一致时（横向 24×20、预编辑指示器 10×10）
+        // 完整显示图标，既不裁切也不拉伸变形
+        scaleType = ImageView.ScaleType.FIT_CENTER
     }
 
     val prevIcon = createIcon(R.drawable.ic_baseline_arrow_left_24)
@@ -46,7 +47,7 @@ class PaginationUi(
     override val root =
         horizontalLayout {
             // splitties 本版本的 add 无默认 LayoutParams 重载，先给占位参数，
-            // 真实尺寸由 setLayoutMode 按横/纵向在绑定时设置。
+            // 真实尺寸由 setInlineRowMode / setIndicatorMode 在绑定时设置。
             add(
                 prevIcon,
                 LinearLayout.LayoutParams(
@@ -64,34 +65,41 @@ class PaginationUi(
         }
 
     /**
-     * 纵向模式下翻页条独占一行且占满窗口宽度，两个按钮各分一半、加高到
-     * [PAGINATION_HEIGHT_DP]；横向模式翻页条跟在行尾（宽度预算 [WIDTH_DP]），
-     * 靠右对齐。两种模式都使用完整图标尺寸作为触摸区——旧版横向按钮只有
-     * 10dp×20dp，24dp 图标被裁掉大半，几乎点不中。
+     * 横向模式的内联翻页条：跟在候选行尾（宽度预算 [WIDTH_DP]），靠右对齐。
+     * 每个按钮 24×20dp：宽度保留可点中的触摸区，高度不超过候选词行高。
      */
-    fun setLayoutMode(horizontal: Boolean) {
-        // 模块未引入 splitties 的 linearlayout dsl 子包，weight 直接用
-        // LinearLayout.LayoutParams 原生构造，不依赖 dsl 扩展。
-        val paramsOf: (ImageView) -> LinearLayout.LayoutParams =
-            if (horizontal) {
-                { LinearLayout.LayoutParams(ctx.dp(ICON_WIDTH_DP), ctx.dp(COMPACT_HEIGHT_DP)) }
-            } else {
-                {
-                    LinearLayout.LayoutParams(0, ctx.dp(PAGINATION_HEIGHT_DP)).apply {
-                        weight = 1f
-                    }
-                }
-            }
-        prevIcon.layoutParams = paramsOf(prevIcon)
-        nextIcon.layoutParams = paramsOf(nextIcon)
-        root.gravity =
-            if (horizontal) {
-                // flexGrow 让翻页条吃掉行尾剩余宽度，图标靠右停在同一位置，而不是紧跟
-                // 最后一个候选词左右游移。
-                Gravity.END or Gravity.CENTER_VERTICAL
-            } else {
-                Gravity.CENTER
-            }
+    fun setInlineRowMode() {
+        val params = {
+            LinearLayout.LayoutParams(ctx.dp(ICON_WIDTH_DP), ctx.dp(COMPACT_HEIGHT_DP))
+        }
+        prevIcon.layoutParams = params()
+        nextIcon.layoutParams = params()
+        prevIcon.rotation = 0f
+        nextIcon.rotation = 0f
+        root.orientation = LinearLayout.HORIZONTAL
+        root.setPadding(0, 0, 0, 0)
+        // flexGrow 让翻页条吃掉行尾剩余宽度，图标靠右停在同一位置，而不是紧跟
+        // 最后一个候选词左右游移。
+        root.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+    }
+
+    /**
+     * 预编辑行的小指示器：图标缩到 [INDICATOR_ICON_DP]，两个箭头纵向叠放
+     * （整组 10dp 宽、[INDICATOR_HEIGHT_DP] dp 高），由 CandidatesView 固定在窗口
+     * 顶行右缘，只提示本页是否还有可翻内容，不再占据候选列表的一行。
+     *
+     * 左右箭头各顺时针转 90°，叠放后成为 ▲/▼，与上下翻页对应。
+     * 触摸与翻页处理保持不变（调用方仍绑定两个图标的点击），只是触摸区随图标一起变小。
+     */
+    fun setIndicatorMode() {
+        val iconSize = ctx.dp(INDICATOR_ICON_DP)
+        prevIcon.layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+        nextIcon.layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+        prevIcon.rotation = 90f
+        nextIcon.rotation = 90f
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(ctx.dp(INDICATOR_START_MARGIN_DP), 0, 0, 0)
+        root.gravity = Gravity.CENTER_HORIZONTAL
     }
 
     fun update(paged: Candidates.Paged) {
@@ -112,11 +120,20 @@ class PaginationUi(
         /** Width of one arrow icon, in dp. */
         const val ICON_WIDTH_DP = 24
 
-        /** 纵向模式翻页按钮的高度（也是翻页行高），dp。 */
-        const val PAGINATION_HEIGHT_DP = 28
+        /** 横向模式翻页按钮的高度，dp；与默认 20sp 候选词的行高相当，避免把最后一行撑高。 */
+        private const val COMPACT_HEIGHT_DP = 20
 
-        /** 横向模式翻页按钮的高度，dp；28dp 足以容纳 24dp 图标并留出触摸余量。 */
-        private const val COMPACT_HEIGHT_DP = 28
+        /** 纵向模式预编辑行内指示器的图标尺寸，dp。 */
+        private const val INDICATOR_ICON_DP = 10
+
+        /** 两个箭头纵向叠放后的组高度，dp。 */
+        const val INDICATOR_HEIGHT_DP = 2 * INDICATOR_ICON_DP
+
+        /** 指示器与预编辑文本之间的最小间距，dp。 */
+        private const val INDICATOR_START_MARGIN_DP = 4
+
+        /** 纵向指示器占用的整组宽度（最小间距 + 图标），dp。 */
+        const val INDICATOR_WIDTH_DP = INDICATOR_START_MARGIN_DP + INDICATOR_ICON_DP
 
         /**
          * Width of the whole pagination item, in dp.

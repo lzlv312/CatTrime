@@ -51,6 +51,8 @@ style:
   latin_font: latin.ttf #西文本体
   keyboard_height: 250 #锁定键盘高度，避免切换时键盘高度变化而造成闪烁
   keyboard_height_land: 200 #锁定横屏下键盘高度，避免切换时键盘高度变化而造成闪烁
+  keyboard_padding_left: 40 #竖屏屏模式下，右手键盘布局，屏幕左侧与键盘的距离
+  keyboard_padding_right: 40 #竖屏屏模式下，左手键盘布局，屏幕右侧与键盘的距离
   popup_font: latin.ttf #按键提示字体
   popup_width: 38 #按键提示宽度
   popup_height: 48 #按键提示高度
@@ -885,13 +887,14 @@ liquid_keyboard:
   vertical_gap: 8     #纵向按键间隙
   margin_x: 5       #左右按键间隙的1/2
   fixed_key_bar: # 固定按键条
-    position: bottom  # 摆放位置（在滚动区域的……） top|bottom|left|right
+    position: navbar  # 摆放位置（在导航栏或滚动区域的……） top|bottom|left|right|navbar
     keys: # 按键（显示名称为对应的label，不能放太多）
-      - liquid_keyboard_exit
+      # 单独属性：click、label、width、height、margin、padding，边距可为列表支持简写
+      # - liquid_keyboard_exit
       - space1
       - BackSpace
       - Return2
-      - clipboard_window
+      # - clipboard_window
       - liquid_keyboard_tabs
   keyboards: [emoji, math, ascii, cn, history, symbollist, list, ids, symbol, tabs, pinyin, script_symbols, jp, grease, rusa, korea, lation, yinbiao, unit, yanwenzi, combing, emoji_full]  #tab列表
   tabs:
@@ -928,7 +931,6 @@ liquid_keyboard:
       - ……
       - { click: "-" }
       - { click: "——", label: "破折" }
-      - { click: "" } # 内容为空可以强制令键盘从此处新起一行
       - （
       - ）
       - 【
@@ -985,7 +987,7 @@ liquid_keyboard:
     name: "音标"
     keys: ["a:", "ɔ:", "ɜː", "i:", "u:", "ʌ", "ɒ", "ə", "ɪ", "ʊ", "e", "æ", "eɪ", "aɪ", "ɔɪ", "ɪə", "eə", "ʊə", "əʊ", "aʊ", "p", "t", "k", "f", "θ", "s", "b", "d", "g", "v", "ð", "z", "ʃ", "h", "ts", "tʃ", "j", "tr", "ʒ", "r", "dz", "dʒ", "dr", "w", "m", "n", "ŋ", "l"]
   yanwenzi:
-    type: SINGLE
+    type: VAR_LENGTH
     name: "颜文字"
     keys: ["⎛⎝≥⏝⏝≤⎠⎞", "^_^", "^ω^", "^o^", "~\\(≧▽≦)/~", "*^_^*", "↖(^ω^)↗", "(^o^)／", "(=^▽^=)", "=^_^=", "(*^ω^*)", "٩(๑^o^๑)۶", "o(￣▽￣)o", "Y(^_^)Y", "٩( 'ω' )و", "╰(*´︶`*)╯", "*罒▽罒*", "ヾ ^_^♪", "=￣ω￣=", "︿(￣︶￣)︿", "(´▽｀)ノ♪", "乁( ˙ ω˙乁)", "✧*｡٩(ˊωˋ*)و✧*｡", "～(￣▽￣～)(～￣▽￣)～", "QwQ", "(●—●)", "(๑• . •๑)", "ヾ(≧O≦)〃嗷~", "罒ω罒", "(｡ì _ í｡)", "(๑•ี_เ•ี๑)", "ㄟ(≧◇≦)ㄏ", "(*/ω＼*)", "●▽●", "٩(๑òωó๑)۶", "✺◟(∗❛ัᴗ❛ั∗)◞✺", "( σ'ω')σ", "♡＾▽＾♡", "(๑•̀ㅂ•́)و✧", "(ง •̀_•́)ง", "(｡･ω･｡)ﾉ♡", "(☆_☆)", "(๑°3°๑)", "_(•̀ω•́ 」∠)_", "♪～(´ε｀　)", "～(^з^)-☆", "(´∀｀)♡", "ლ(´ڡ`ლ)", "(＞﹏＜)", "T_T", "⊙︿⊙", "〒▽〒", "⊙﹏⊙", "π_π", "(｡•́︿•̀｡)", "(ToT)/~~~", "╯﹏╰", "ಥ_ಥ", "(╥╯^╰╥)", "(〃′o`)", "●﹏●", "( •̥́ ˍ •̀ू )", "(つд⊂)", "心塞(´-ωก`)", "(╥﹏╥)", "┭┮﹏┭┮", "（；´д｀）ゞ", "(´;︵;`)", "(。﹏。)", "┗( T﹏T )┛", "QAQ", "ヘ(_ _ヘ)", "╰（‵□′）╯", "(*￣︿￣)", ">o<", "(-`ェ´-怒)", "ヽ(‘⌒´メ)ノ", "(*｀Ω´*)v", "(｡•ˇ‸ˇ•｡)", "(怒｀Д´怒)", "٩(๑`^´๑)۶", "(;｀O´)o", "╰_╯", "(#｀皿´)<怒怒怒!!!", "<(｀^´)>", "（｀Δ´）！", "ψ(｀∇´)ψ", "(；′⌒`)", "s(・｀ヘ´・;)ゞ", "(▼皿▼#)", "￣へ￣", "←_←", "（╯‵□′）╯︵┴─┴", "（▼へ▼メ）", "☄ฺ(◣д◢)☄ฺ", "→_→", "⊙_⊙", "d(ŐдŐ๑)", "Σ( ° △ °|||)︴", "(((φ(◎ロ◎;)φ)))", "⊙▽⊙", "(๑ŐдŐ)b", "╭(°A°`)╮", "(๑òᆺó๑)", "⊙ω⊙", "Σ(っ °Д °;)っ", " (ﾟДﾟ≡ﾟдﾟ)!?", "( *・ω・)✄╰ひ╯", "(⊙x⊙;)", "┌(。Д。)┐", "(°ー°〃)", "︽⊙_⊙︽", "!!!∑(°Д°ノ)ノ", "(๑ŐдŐ)b☆d(ŐдŐ๑)", "Σ⊙▃⊙川", "ヽ(*。>Д<)o゜", "━((*′д｀)爻(′д｀*))━!!!!", "=_=", "╮(╯_╰)╭", "（︶︿︶）", "_(:з」∠)_", "@_@", "╮(╯▽╰)╭", "(＠￣ー￣＠)", "_(:3」∠❀)_", "눈_눈", "╭(╯ε╰)╮", "(ー_ー)!!", "_(:D)∠)_", "o_O", "╭(╯^╰)╮", "(；一_一)", "´_>`", "-_-#", "┑(￣Д ￣)┍", "≡￣﹏￣≡", "○|￣|_", "-_-||", "ㄟ( ▔, ▔ )ㄏ", "( ＿ ＿)ノ｜壁", "▄█▀█●"]
   combing:
@@ -1213,6 +1215,7 @@ preset_keyboards:
     name: "编辑键盘"
     width: 20.25
     height: *jpgd5
+    navbar: true # 显示导航栏
     keys:
       - {click: select_all}
       - {click: Left1}
@@ -4053,6 +4056,7 @@ preset_keys:
   Schema_switch: {label: 下一方案, functional: false, send: Control+Shift+1}
   Schema_Eng: {label: En, functional: true, send: Control+Shift+0}
   Theme_settings: {label: 主题, send: SETTINGS, option: "theme"}
+  Color_settings: { label: 配色, send: SETTINGS, option: "color" }
   Color_switch: {label: 配色, functional: false, send: PROG_RED}
   Help: {label: 说明, send: HELP}
   Info: {label: 关于, send: INFO}
@@ -4082,6 +4086,9 @@ preset_keys:
   Left1: {label: '⇦', send: Control+Left, repeatable: true, functional: false}
   Right1: {label: '⇨', send: Control+Right, repeatable: true, functional: false}
   Shift_L2: {label: 选择, preview: '⇪', functional: false, send: Shift_L}
+
+  RestartRime: {label: 重启, send: FUNCTION, command: apply, option: "RESTART_RIME"}
+  reload_theme: { label: 刷新主题, send: FUNCTION, command: set_theme }
 
   # 22自定义功能键
   Keyboard_fbjzj: {label: 助记, functional: false, send: Eisu_toggle, select: fbjzj}
@@ -4236,3 +4243,22 @@ preset_keys:
   标点: {text: '{Escape}/bd', label: 标点, functional: false}
   偏旁: {text: '{Escape}/pp', label: 偏旁, functional: false}
   竖标点: {text: '{Escape}/bdz', label: 竖标, functional: false}
+
+# 工具面板自定义，由menu_keyboard指令打开
+menu_keyboard:
+  tab: 0 # 初始面板，0方案开关，1工具面板
+  fonts: [iconfont.ttf] # 自定义字体列表，两个面板均有效
+  items:
+    - Theme_settings
+    - Color_settings
+    - label: '方案'
+      action: Menu
+    - RestartRime
+    - hide_input_bar
+    - candidates_window_mode
+    - floating_keyboard_mode
+    - label: '单手模式' # 可省略，预设键是双态开关时，会覆盖states的label切换，不写时跟随预设键的label或states状态
+      # icons: ['亮色.png', '暗色.png'] # 可省略，单状态明暗两配色图标，包括文字在内整体替换，只写一个时明暗通用，不写时图标文本位跟随预设键的label或states状态
+      action: one_hand_switch # 要执行的动作，只有该项时可省略action直接写预设键名
+      auto_close: false # 点击后自动关闭工具面板，默认true，预设键是无状态的，无法自动判定是否需要停留
+    - reload_theme

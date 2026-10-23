@@ -8,6 +8,7 @@ package com.osfans.trime.data.prefs
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.annotation.Keep
+import androidx.core.content.edit
 import com.osfans.trime.R
 import com.osfans.trime.data.base.DataManager
 import com.osfans.trime.ime.candidates.compact.CompactCandidateMode
@@ -126,12 +127,36 @@ class AppPrefs(
         companion object {
             const val PID = "general__pid"
             const val PREVIOUS_KEYBOARD_IDS = "internal__previous_keyboard_ids"
-            const val INITIALIZE_KEYBOARD_ID = "internal__initialize_keyboard_id"
+            const val REMEMBERED_KEYBOARD_ID = "internal__initialize_keyboard_id"
+            const val KEYBOARD_MEMORY_THEME = "internal__keyboard_memory_theme"
+            const val KEYBOARD_MEMORY_SCHEMA = "internal__keyboard_memory_schema"
         }
 
         val pid = int(PID, 0)
         val previousKeyboardIds = string(PREVIOUS_KEYBOARD_IDS, "")
-        val initializeKeyboardId = string(INITIALIZE_KEYBOARD_ID, "")
+
+        /** 用户最后显式选择的 lock 键盘，应用重启后恢复。 */
+        val rememberedKeyboardId = string(REMEMBERED_KEYBOARD_ID, "")
+
+        /** [rememberedKeyboardId] 所属的主题；换主题后需要重新按方案匹配。 */
+        val keyboardMemoryTheme = string(KEYBOARD_MEMORY_THEME, "")
+
+        /** [rememberedKeyboardId] 记录时的方案；方案变了需要重新匹配。 */
+        val keyboardMemorySchema = string(KEYBOARD_MEMORY_SCHEMA, "")
+
+        /**
+         * 一次性写入键盘记忆：id 与方案在同一个事务里落盘，
+         * 避免一次切换触发两次 [SharedPreferences.Editor.apply]。
+         */
+        fun setKeyboardMemory(
+            keyboardId: String,
+            schemaId: String?,
+        ) {
+            sharedPreferences.edit {
+                putString(REMEMBERED_KEYBOARD_ID, keyboardId)
+                if (schemaId != null) putString(KEYBOARD_MEMORY_SCHEMA, schemaId)
+            }
+        }
     }
 
     class General(
@@ -234,6 +259,12 @@ class AppPrefs(
             BOTTOM(R.string.floating_bar_bottom),
         }
 
+        enum class OneHandMode(override val stringRes: Int) : PreferenceDelegateEnum {
+            DISABLE(R.string.disable),
+            LEFT(R.string.left_hand),
+            RIGHT(R.string.right_hand),
+        }
+
         val floatingKeyboard = switch(
             R.string.floating_keyboard,
             FLOATING_KEYBOARD,
@@ -288,7 +319,7 @@ class AppPrefs(
         val floatingPreeditOffsetX = int(
             R.string.floating_preedit_offset_x,
             FLOATING_PREEDIT_OFFSET_X,
-            16,
+            18,
             -120,
             120,
             "dp",
@@ -333,6 +364,9 @@ class AppPrefs(
                 2,
             ) { floatingSettingsEnabled() }
 
+        // 注册顺序即设置页顺序，单手模式需显示在“启用横屏模式”之上。
+        val oneHandMode = enum(R.string.one_hand_mode, ONE_HAND_MODE, OneHandMode.DISABLE)
+
         val landscapeMode = enum(R.string.enable_landscape_mode, LANDSCAPE_MODE, LandscapeMode.NEVER)
         val splitSpacePercent = int(
             R.string.split_space_percent,
@@ -348,9 +382,6 @@ class AppPrefs(
         val hideInputBar = switch(R.string.hide_input_bar, HIDE_INPUT_BAR, false)
         val hideKeySymbol = switch(R.string.hide_key_symbol, HIDE_KEY_SYMBOL, false)
         val hideKeyHint = switch(R.string.hide_key_hint, HIDE_KEY_HINT, false)
-
-        // 0 normal, 1 left-hand, 2 right-hand
-        val oneHandMode = int(R.string.one_hand_mode, ONE_HAND_MODE, 0, 0, 2)
 
         val soundOnKeyPress = switch(R.string.sound_on_keypress, SOUND_ON_KEYPRESS, false)
         val soundVolume = int(

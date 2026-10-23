@@ -233,15 +233,11 @@ internal fun palette(
         "candidate_background" to background,
         "liquid_keyboard_background" to background,
         "key_back_color" to keySurface,
-        // 预编辑区/候选窗口是窗口本身的一部分，和 `back_color` 同层：取键面灰
-        // （keySurface）会让它在白色键盘上方隐约发灰，与主题里 text_back_color
-        // 回退到 back_color 的语义也不一致。
-        "text_back_color" to background,
+        "text_back_color" to keySurface,
         "long_text_back_color" to keySurface,
         "popup_back_color" to keySurface,
-        // Key preview: its fallbacks point at the key surface (`key_back_color` /
-        // `key_text_color`), and the live preview uses `popup_*` for the same reason. An accent
-        // here would read as a highlighted key rather than as the key itself.
+        // Key press bubble. A legacy name (the live popup paints with `popup_*`), kept for the
+        // theme's own references; the schema default points it at the key surface.
         "preview_back_color" to keySurface,
         "preview_text_color" to onKeySurface,
         // Function keys: shift, backspace, return, the symbol and number rows, the keys that only

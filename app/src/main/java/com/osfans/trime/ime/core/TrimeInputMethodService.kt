@@ -212,18 +212,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
             }
         }
 
-    /** Prefs that only resize the popup candidate window's row, so no rebuild is needed. */
-    private val refreshCandidatesRowPrefs: Array<PreferenceDelegate<*>> = arrayOf(
-        prefs.keyboard.maxSpanCount,
-        prefs.keyboard.maxSpanCountLandscape,
-    )
-
-    @Keep
-    private val refreshCandidatesRowListener =
-        PreferenceDelegate.OnChangeListener<Any> { _, _ ->
-            candidatesView?.refreshSlotLayout()
-        }
-
     @Keep
     private val onThemeChangeListener =
         ThemeManager.OnThemeChangeListener {
@@ -292,9 +280,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
             it.registerOnChangeListener(recreateInputViewListener)
         }
         prefs.candidates.registerOnChangeListener(recreateCandidatesViewListener)
-        refreshCandidatesRowPrefs.forEach {
-            it.registerOnChangeListener(refreshCandidatesRowListener)
-        }
         // ensure theme and color managers are initialized after rime is ready
         lifecycleScope.launch {
             rime.runOnReady {
@@ -481,9 +466,6 @@ open class TrimeInputMethodService : LifecycleInputMethodService() {
             it.unregisterOnChangeListener(recreateInputViewListener)
         }
         prefs.candidates.unregisterOnChangeListener(recreateCandidatesViewListener)
-        refreshCandidatesRowPrefs.forEach {
-            it.unregisterOnChangeListener(refreshCandidatesRowListener)
-        }
         ThemeManager.removeOnChangedListener(onThemeChangeListener)
         ColorManager.removeOnChangedListener(onColorChangeListener)
         super.onDestroy()

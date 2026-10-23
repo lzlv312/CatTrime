@@ -146,6 +146,9 @@ class DialogSeekBarPreference : DialogPreference {
             valueTo = getProgressForValue(this@DialogSeekBarPreference.max).toFloat()
             stepSize = 1f
             value = getProgressForValue(this@DialogSeekBarPreference.value).toFloat()
+            // 滑块内部存的是 (值 - min) / step 的档位，默认气泡会直接显示档位；
+            // 还原成真实值，才能和上方文字保持一致（min 非 0 或 step > 1 时两者不同）。
+            setLabelFormatter { progress -> getTextForValue(getValueForProgress(progress.toInt())) }
             addOnChangeListener { _, sliderValue, _ ->
                 textView.text = getTextForValue(getValueForProgress(sliderValue.toInt()))
             }

@@ -86,7 +86,13 @@ class PagedCandidatesUi(
 
             override fun getItemId(position: Int): Long = items.getOrNull(position).hashCode().toLong()
 
-            override fun getItemCount(items: List<CandidateProto>) = items.size + (if (candidates.hasPrevPage || candidates.hasNextPage) 1 else 0)
+            // 纵向布局的翻页提示在窗口顶行（见 CandidatesView），不再作为列表条目；
+            // 只有横向布局把翻页条放在候选行尾。
+            override fun getItemCount(items: List<CandidateProto>): Int {
+                val hasInlinePagination =
+                    isHorizontal && (candidates.hasPrevPage || candidates.hasNextPage)
+                return items.size + if (hasInlinePagination) 1 else 0
+            }
 
             override fun getItemViewType(
                 position: Int,
@@ -190,11 +196,11 @@ class PagedCandidatesUi(
                     }
                     is UiHolder.Pagination -> {
                         holder.ui.update(candidates)
-                        holder.ui.setLayoutMode(isHorizontal)
+                        holder.ui.setInlineRowMode()
                         holder.ui.root.updateLayoutParams<FlexboxLayoutManager.LayoutParams> {
                             flexGrow = 1f
-                            width = if (isHorizontal) WRAP_CONTENT else MATCH_PARENT
-                            alignSelf = if (isHorizontal) AlignItems.CENTER else AlignItems.STRETCH
+                            width = WRAP_CONTENT
+                            alignSelf = AlignItems.CENTER
                         }
                     }
                 }

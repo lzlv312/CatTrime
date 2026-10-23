@@ -158,6 +158,8 @@
     <string name="simple_key_pin">Pin</string>
     <string name="delete_all">Delete all</string>
     <string name="disable">Disable</string>
+    <string name="left_hand">Left hand</string>
+    <string name="right_hand">Right hand</string>
     <string name="a_regular_expression_per_line">A regular expression per line</string>
     <string name="custom_sound_effect_enabled">Use custom key sound</string>
     <string name="enable_landscape_mode">Enable Landscape Mode</string>
@@ -232,7 +234,9 @@
     <string name="hide_input_bar">Hide input bar</string>
     <string name="hide_key_symbol">Hide key symbol</string>
     <string name="hide_key_hint">Hide key hint</string>
-    <string name="one_hand_mode">One hand mode</string>
+    <string name="one_hand_mode">One hand mode (portrait)</string>
+    <string name="switch_items">Switch items</string>
+    <string name="tools_panel">Tools panel</string>
     <string name="navbar_bkg_none">No background</string>
     <string name="navbar_bkg_color_only">Follow keyboard color</string>
     <string name="navbar_bkg_full">Keyboard background image</string>

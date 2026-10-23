@@ -20,6 +20,7 @@ import com.osfans.trime.daemon.RimeSession
 import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.KeyActionManager
 import com.osfans.trime.data.theme.Theme
+import com.osfans.trime.data.theme.ThemeManager
 import com.osfans.trime.data.theme.model.TextKeyboard
 import com.osfans.trime.ime.bar.InputBarDelegate
 import com.osfans.trime.ime.broadcast.EnterKeyDisplayDelegate
@@ -93,10 +94,26 @@ class KeyboardWindow :
 
     private val presetKeyboardIds = theme.presetKeyboards.keys.toList()
     private val internalPrefs = AppPrefs.defaultInstance().internal
-    private var initializeKeyboardId = internalPrefs.initializeKeyboardId.getValue()
+    private var rememberedKeyboardId = internalPrefs.rememberedKeyboardId.getValue()
     private val keyboardSourceMap = mutableMapOf<String, String>()
     private var currentKeyboardId = ""
-    private var lastSchemaId = ""
+
+    // 最近一次已知的方案。null 表示引擎还没给出有效方案（部署/重启期间），
+    // 此时收到的方案通知只是引擎在恢复自己的状态，不能当作“用户换方案”。
+    private var lastSchemaId: String? = null
+
+    // 本窗口创建时是否沿用了记忆键盘：有记忆时首个方案通知不能推翻它。
+    private var restoredFromMemory = false
+
+    // 换主题后若方案尚不可用，等首个有效方案到达再做一次匹配。
+    private var pendingMatch = false
+
+    // 用户在本窗口里手动选过键盘：之后引擎恢复方案的通知不能再推翻它。
+    private var userChoseKeyboard = false
+
+    // 当前输入框类型决定的临时键盘（数字/ASCII）。方案晚到时的补匹配不能顶掉它。
+    private var inputTypeKeyboard: String? = null
+
     private var lastKeyboardId = ""
     private var lastLockKeyboardId = ""
     private var tempAsciiMode: Boolean? = null
@@ -127,7 +144,8 @@ class KeyboardWindow :
                 lastIsPortrait = isPortrait
                 containerWidth = width
                 allowedWidth = width
-                v.post { refreshKeyboards() }
+                // 宽/高变化后所有缓存键盘的已烘焙几何都失效，必须整表重建
+                v.post { refreshKeyboards(true) }
             }
         }
 
@@ -136,14 +154,52 @@ class KeyboardWindow :
         keyboardView.addOnLayoutChangeListener(onKeyboardViewLayoutChangeListener)
 
         restoreKeyboardSourceMap()
-        // 使用记忆的键盘ID，否则根据方案匹配
-        val targetKeyboardId = initializeKeyboardId.takeIf {
-            it.isNotEmpty() && presetKeyboardIds.contains(it)
-        } ?: ".default"
 
-        attachKeyboard(evalKeyboard(targetKeyboardId))
+        // 方案基线：部署/重启期间可能还是 .default，保持 null 等引擎通知。
+        val schemaId = currentSchemaId()
+        lastSchemaId = schemaId
+
+        // 只有真正换了主题才重新匹配。同一主题下的重建（设置、配色、进程重启、
+        // 部署）一律恢复用户最后选择的键盘，保证部署不会改动当前键盘。
+        val themeId = ThemeManager.prefs.selectedTheme.getValue()
+        val memoryThemeId = internalPrefs.keyboardMemoryTheme.getValue()
+        val themeChanged = memoryThemeId.isNotEmpty() && memoryThemeId != themeId
+        if (memoryThemeId != themeId) internalPrefs.keyboardMemoryTheme.setValue(themeId)
+
+        // 记忆属于旧主题的键盘集合：换主题后旧选择作废，由新主题重新匹配；
+        // 匹配结果是 lock 键盘时会重新写入记忆。
+        if (themeChanged) {
+            rememberedKeyboardId = ""
+            internalPrefs.rememberedKeyboardId.setValue("")
+        }
+
+        // 记忆写下之后方案又变过（进程被杀期间的切换）：按新方案重新匹配。
+        // 部署不会改变方案，因此不会走到这里。
+        val rememberedSchema = internalPrefs.keyboardMemorySchema.getValue()
+        val schemaChanged =
+            schemaId != null && rememberedSchema.isNotEmpty() && rememberedSchema != schemaId
+        if (schemaId != null && rememberedSchema != schemaId) {
+            internalPrefs.keyboardMemorySchema.setValue(schemaId)
+        }
+        // 旧方案下的选择对新方案无效；若匹配结果是 lock 键盘会重新写入记忆，
+        // 否则保持“无记忆”，下次启动仍按方案匹配。
+        if (schemaChanged) {
+            rememberedKeyboardId = ""
+            internalPrefs.rememberedKeyboardId.setValue("")
+        }
+
+        val remembered = rememberedKeyboardId.takeIf(::isRememberable)
+        restoredFromMemory = remembered != null
+        pendingMatch = remembered == null && schemaId == null
+
+        // 换主题或没有可用记忆时按方案匹配；方案未知则先挂默认键盘，
+        // 等首个有效方案到达后由 pendingMatch 补一次匹配。
+        val matchNow = remembered == null && schemaId != null
+        attachKeyboard(evalKeyboard(remembered ?: ".default", remember = matchNow))
         return keyboardView
     }
+
+    private fun currentSchemaId(): String? = rime.status.schemaId.takeIf { it.isNotEmpty() && it != ".default" }
 
     private fun detachCurrentView() {
         currentKeyboardView?.also {
@@ -173,22 +229,23 @@ class KeyboardWindow :
                 }
             }
 
-        fun resolvePadding(configValue: Int) = configValue.takeIf { it > 0 } ?: padding
-
-        // 0 normal, 1 left-hand, 2 right-hand；横屏不参与单手模式
+        // 横屏不参与单手模式
         val oneHandState = if (isPortrait) {
             AppPrefs.defaultInstance().keyboard.oneHandMode.getValue()
         } else {
-            0
+            AppPrefs.Keyboard.OneHandMode.DISABLE
         }
 
-        val (paddingLeft, paddingRight) = when (oneHandState) {
-            1 -> padding to resolvePadding(theme.generalStyle.keyboardPaddingRight)
-            2 -> resolvePadding(theme.generalStyle.keyboardPaddingLeft) to padding
-            else -> padding to padding
-        }
+        // 单手边距是在 keyboard_padding 之上叠加的额外留白，而非替换它：
+        // keyboard_padding 为曲面屏等场景预留，任何模式下都必须保留。
+        val extraLeft = theme.generalStyle.keyboardPaddingLeft.takeIf {
+            oneHandState == AppPrefs.Keyboard.OneHandMode.RIGHT && it > 0
+        } ?: 0
+        val extraRight = theme.generalStyle.keyboardPaddingRight.takeIf {
+            oneHandState == AppPrefs.Keyboard.OneHandMode.LEFT && it > 0
+        } ?: 0
 
-        val totalPadding = paddingLeft + paddingRight
+        val totalPadding = padding * 2 + extraLeft + extraRight
 
         val safeWidth = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val windowMetrics = context.windowManager.maximumWindowMetrics
@@ -310,7 +367,32 @@ class KeyboardWindow :
             }?.toMap(keyboardSourceMap)
     }
 
-    private fun evalKeyboard(id: String): String {
+    /** 只有主题标了 lock 的键盘才值得跨重启记忆（符号、数字等临时布局不记）。 */
+    private fun isRememberable(id: String): Boolean = presetKeyboardIds.contains(id) && selectKeyboardConfig(id)?.lock == true
+
+    /**
+     * 记忆用户最后显式选择的 lock 键盘（.last_lock 语义）。
+     *
+     * 只能在横屏布局替换前调用：landscape_keyboard 通常只是同一主键盘的横向变体，
+     * 写进记忆后下次启动（竖屏）会错误地挂载横向布局。
+     */
+    private fun rememberKeyboardId(id: String) {
+        if (id == rememberedKeyboardId) return
+        rememberedKeyboardId = id
+        internalPrefs.setKeyboardMemory(id, currentSchemaId())
+    }
+
+    /**
+     * 解析目标键盘 ID 并挂载。
+     *
+     * [remember] 只在用户显式切换键盘（按键 select / _keyboard_ 选项等）或主题、
+     * 方案变化触发匹配时为 true；输入框类型、窗口重建、部署重启不能写记忆，
+     * 否则会把临时键盘当成用户选择持久化。
+     */
+    private fun evalKeyboard(
+        id: String,
+        remember: Boolean = false,
+    ): String {
         val currentIdx = presetKeyboardIds.indexOfFirst { currentKeyboardId == it }
         val dot =
             when (id) {
@@ -329,17 +411,24 @@ class KeyboardWindow :
                 }
                 else -> {
                     id.ifEmpty {
-                        if (currentKeyboard?.isLock == true) currentKeyboardId else lastLockKeyboardId
+                        when {
+                            currentKeyboard?.isLock == true -> currentKeyboardId
+                            lastLockKeyboardId.isNotEmpty() -> lastLockKeyboardId
+                            // 新建窗口时 lastLockKeyboardId 还是空的，此时回落到记忆的
+                            // lock 键盘；没有记忆就交给 smartMatchKeyboard。
+                            else -> rememberedKeyboardId.takeIf(::isRememberable) ?: ""
+                        }
                     }
                 }
             }
-        var final = dot.ifEmpty { smartMatchKeyboard() }
+        val resolved = dot.ifEmpty { smartMatchKeyboard() }
 
-        // 记忆最终键盘ID（排除横屏键盘）
-        if (final != currentKeyboardId) {
-            initializeKeyboardId = final
-            internalPrefs.initializeKeyboardId.setValue(final)
+        // 只记录用户显式选择、且主题标了 lock 的键盘。
+        if (remember && isRememberable(resolved)) {
+            rememberKeyboardId(resolved)
         }
+
+        var final = resolved
 
         // 切换到横屏布局。悬浮键盘例外：landscape_keyboard 指定的布局通常更宽，
         // 悬浮缩放后难以点按，且悬浮卡片的尺寸解算只按竖屏布局校准——实测指定了
@@ -354,13 +443,24 @@ class KeyboardWindow :
         return final
     }
 
-    fun switchKeyboard(to: String) {
-        val target = evalKeyboard(to)
+    fun switchKeyboard(
+        to: String,
+        remember: Boolean = true,
+        userInitiated: Boolean = true,
+    ) {
+        val target = evalKeyboard(to, remember)
+        if (userInitiated) {
+            // 用户已经做出选择，任何尚未发生的自动匹配都不应再覆盖它。
+            pendingMatch = false
+            userChoseKeyboard = true
+            inputTypeKeyboard = null
+        }
         ContextCompat.getMainExecutor(service).execute {
             if (cachedKeyboards.containsKey(target)) {
                 if (target == currentKeyboardId) return@execute
             }
-            // 保存上一个键盘ID，用于来源键盘回退（如果不是返回类操作且不是重新弹出则记录）
+            // 保存上一个键盘ID，用于来源键盘回退（如果不是返回类操作且不是重新弹出则记录）。
+            // 允许互指：通用工具键盘被 A、C 先后打开时，返回的是最后打开者，所以这里直接覆盖。
             if (to.isNotEmpty() && to !in setOf(".previous", ".last_lock")) {
                 keyboardSourceMap[target] = currentKeyboardId
                 persistKeyboardSourceMap()
@@ -407,7 +507,10 @@ class KeyboardWindow :
                     }
                 }
             }
-        switchKeyboard(targetKeyboard)
+        // 由输入框类型决定的临时键盘（数字/ASCII）以及空目标的回落不能写记忆，
+        // 它们不代表用户选择。
+        inputTypeKeyboard = targetKeyboard.takeIf { it == ".ascii" || it == "number" }
+        switchKeyboard(targetKeyboard, remember = false, userInitiated = false)
         val isAsciiMode = rime.status.isAsciiMode
         if (targetKeyboard == ".ascii" || targetKeyboard == "number") {
             if (tempAsciiMode == null) {
@@ -459,16 +562,40 @@ class KeyboardWindow :
     }
 
     override fun onRimeSchemaUpdated(schema: SchemaItem) {
-        // 方案变化时按方案匹配键盘；方案未变化（如部署重启后的初始通知）时恢复记忆的键盘
-        val schemaChanged = schema.id != lastSchemaId
+        // .default / 空 ID 是“无方案”的占位状态，不是一次方案切换。
+        if (schema.id.isEmpty() || schema.id == ".default") return
+
+        val previous = lastSchemaId
         lastSchemaId = schema.id
-        switchKeyboard(
-            if (schemaChanged) {
-                ".default"
-            } else {
-                initializeKeyboardId.takeIf { it.isNotEmpty() && presetKeyboardIds.contains(it) } ?: ".default"
-            },
-        )
+
+        // 换主题时方案还不可用：现在已经知道方案了，补做匹配。
+        // 当前若被输入框类型钉在数字/ASCII 键盘上，则保持不动。
+        if (pendingMatch) {
+            pendingMatch = false
+            if (inputTypeKeyboard == null) {
+                switchKeyboard(".default", remember = true, userInitiated = false)
+            }
+            internalPrefs.keyboardMemorySchema.setValue(schema.id)
+            return
+        }
+
+        // 本窗口还没有方案基线：这是引擎恢复方案的通知（部署/重启），不是用户
+        // 换方案。已恢复或已手动选择的键盘保持不动；没有记忆时才补一次匹配。
+        if (previous == null) {
+            if (!restoredFromMemory && !userChoseKeyboard) {
+                switchKeyboard(".default", remember = true, userInitiated = false)
+            }
+            return
+        }
+
+        if (previous == schema.id) return
+
+        // 用户确实换了方案：旧方案下的键盘选择作废，按新方案匹配。
+        // 匹配结果是 lock 键盘时会重新写入记忆，否则保持“无记忆”。
+        rememberedKeyboardId = ""
+        internalPrefs.rememberedKeyboardId.setValue("")
+        switchKeyboard(".default", remember = true, userInitiated = false)
+        internalPrefs.keyboardMemorySchema.setValue(schema.id)
     }
 
     override fun onRimeOptionUpdated(value: RimeMessage.OptionMessage.Data) {

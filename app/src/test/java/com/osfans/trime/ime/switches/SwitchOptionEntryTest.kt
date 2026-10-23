@@ -70,10 +70,14 @@ class SwitchOptionEntryTest :
                 }
             }
             When("no listed option is on") {
-                Then("the first state is shown and nothing is marked") {
+                Then("the first state is shown and marked, whatever reset says") {
                     val built = entry(group)!!
                     built.label shouldBe "简体"
-                    built.selectedIndex shouldBe -1
+                    built.selectedIndex shouldBe 0
+                    // librime applies `reset` at schema load, so this all-off state only
+                    // happens when reset is undeclared or out of range; 0 is its default.
+                    entry(group.copy(reset = 2))!!.selectedIndex shouldBe 0
+                    entry(group.copy(reset = 9))!!.selectedIndex shouldBe 0
                 }
             }
             Then("its options are kept, because they are what the menu lists") {

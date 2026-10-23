@@ -738,7 +738,6 @@ liquid_keyboard:
       - ……
       - { click: "-" }
       - { click: "——", label: "破折" }
-      - { click: "" } # 内容为空可以强制令键盘从此处新起一行
       - （
       - ）
       - 【

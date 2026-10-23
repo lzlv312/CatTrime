@@ -25,6 +25,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import timber.log.Timber
 import java.io.File
+import java.io.InputStream
 
 object BackupManager {
     private val json = Json {
@@ -165,15 +166,18 @@ object BackupManager {
         }
     }
 
-    suspend fun loadBackupFromFile(file: File): Result<BackupData> = withContext(Dispatchers.IO) {
+    /**
+     * 从内容流读取备份。SAF 选中的文档（尤其相册/媒体类 provider）不一定能解析成
+     * 本地文件路径，直接读流才不会受 provider 实现差异影响。
+     */
+    suspend fun loadBackupFromStream(stream: InputStream): Result<BackupData> = withContext(Dispatchers.IO) {
         try {
-            Timber.d("Loading backup from file: ${file.absolutePath}")
-            val jsonString = file.readText()
+            val jsonString = stream.use { it.bufferedReader().readText() }
             val backupData = json.decodeFromString<BackupData>(jsonString)
             Timber.d("Backup loaded successfully, version: ${backupData.version}")
             Result.success(backupData)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to load backup from file: ${file.absolutePath}")
+            Timber.e(e, "Failed to load backup from stream")
             Result.failure(e)
         }
     }
