@@ -37,6 +37,9 @@ interface RimeSession {
     /** Cached schema of the current session. Never blocks. */
     val schema: RimeSchema
 
+    /** The ascii mode the active keyboard asks for; replayed once after a deploy rebuild. */
+    var keyboardAsciiMode: Boolean?
+
     /**
      * Run an operation immediately
      * The suspended [block] will be executed in caller's thread.

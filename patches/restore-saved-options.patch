@@ -1,0 +1,23 @@
+diff --git a/src/rime/engine.cc b/src/rime/engine.cc
+index 4a54f64c..3bad5c0a 100644
+--- a/src/rime/engine.cc
++++ b/src/rime/engine.cc
+@@ -85,8 +85,6 @@ ConcreteEngine::ConcreteEngine() {
+       });
+ 
+   switcher_ = New<Switcher>(this);
+-  // saved options should be loaded only once per input session
+-  switcher_->RestoreSavedOptions();
+ 
+   InitializeComponents();
+   InitializeOptions();
+@@ -392,6 +390,9 @@ void ConcreteEngine::InitializeOptions() {
+     }
+     return Switches::kContinue;
+   });
++
++  // saved options are user data; they must outrank schema switch reset values
++  switcher_->RestoreSavedOptions();
+ }
+ 
+ }  // namespace rime

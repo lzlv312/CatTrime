@@ -601,6 +601,16 @@
           "default": "back_color",
           "description": "候选栏的整体背景图/色"
         },
+        "candidate_panel_background": {
+          "type": "string",
+          "default": "candidate_background",
+          "description": "展开候选面板的背景图/色"
+        },
+        "candidate_window_background": {
+          "type": "string",
+          "default": "text_back_color",
+          "description": "候选窗口的整体背景图/色"
+        },
         "keyboard_back_color": {
           "type": "string",
           "default": "border_color",
@@ -614,7 +624,7 @@
         "text_back_color": {
           "type": "string",
           "default": "back_color",
-          "description": "编码区背景，即悬浮窗背景"
+          "description": "编码区背景"
         },
         "long_text_back_color": {
           "type": "string",

@@ -133,11 +133,13 @@ object ThemeManager {
     fun selectTheme(configId: String) {
         val resolvedTheme = getThemeById(configId)
         val theme = resolvedTheme.theme
+        // 先落盘再通知：输入视图在 onThemeChange 里重建，重建时需要读到新主题 ID
+        // 才能区分“换了主题”和“同一主题下原地重建”。
+        prefs.selectedTheme.setValue(resolvedTheme.configId)
         KeyActionManager.resetCache()
         FontManager.resetCache(theme)
         ColorManager.switchTheme(theme)
         LiquidData.init(theme)
         activeTheme = theme
-        prefs.selectedTheme.setValue(resolvedTheme.configId)
     }
 }

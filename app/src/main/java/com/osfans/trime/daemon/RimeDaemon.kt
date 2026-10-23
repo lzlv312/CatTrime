@@ -15,9 +15,7 @@ import com.osfans.trime.TrimeApplication
 import com.osfans.trime.core.CompositionProto
 import com.osfans.trime.core.Rime
 import com.osfans.trime.core.RimeApi
-import com.osfans.trime.core.RimeConfig
 import com.osfans.trime.core.RimeLifecycle
-import com.osfans.trime.core.RimeLifecycleObserver
 import com.osfans.trime.core.RimeMessage
 import com.osfans.trime.core.RimeSchema
 import com.osfans.trime.core.StatusProto
@@ -33,11 +31,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import splitties.systemservices.notificationManager
-import timber.log.Timber
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.time.Duration.Companion.minutes
@@ -60,8 +55,6 @@ object RimeDaemon {
     private val DEPLOY_WAKE_LOCK_TIMEOUT = 20.minutes
 
     private val realRime by lazy { Rime() }
-
-    private val rimeImpl by lazy { object : RimeApi by realRime {} }
 
     private val sessions = mutableMapOf<String, RimeSession>()
 
@@ -102,8 +95,6 @@ object RimeDaemon {
         if (deployWakeLock.isHeld) deployWakeLock.release()
     }
 
-    private val loadOptionsMutex = Mutex()
-
     private fun establish(name: String) = object : RimeSession {
         private inline fun <T> ensureEstablished(block: () -> T) = if (name in establishedNames) {
             block()
@@ -115,29 +106,35 @@ object RimeDaemon {
         // native layer. Deliberately not gated by ensureEstablished() -- reading
         // a stale snapshot is harmless and keeps UI hot paths lock-free.
         override val status: StatusProto
-            get() = rimeImpl.statusCached
+            get() = realRime.statusCached
         override val paging: Boolean
-            get() = rimeImpl.paging
+            get() = realRime.paging
         override val hasMenu: Boolean
-            get() = rimeImpl.hasMenu
+            get() = realRime.hasMenu
         override val composition: CompositionProto
-            get() = rimeImpl.compositionCached
+            get() = realRime.compositionCached
         override val schema: RimeSchema
-            get() = rimeImpl.schemaCached
+            get() = realRime.schemaCached
+
+        override var keyboardAsciiMode: Boolean?
+            get() = realRime.keyboardAsciiMode
+            set(value) {
+                realRime.keyboardAsciiMode = value
+            }
 
         override fun <T> run(block: suspend RimeApi.() -> T): T = ensureEstablished {
-            runBlocking { block(rimeImpl) }
+            runBlocking { block(realRime) }
         }
 
         override suspend fun <T> runOnReady(block: suspend RimeApi.() -> T): T = ensureEstablished {
-            realRime.lifecycle.whenReady { block(rimeImpl) }
+            realRime.lifecycle.whenReady { block(realRime) }
         }
 
         override fun runIfReady(block: suspend RimeApi.() -> Unit) {
             ensureEstablished {
                 if (realRime.isReady) {
                     realRime.lifecycleScope.launch {
-                        block(rimeImpl)
+                        block(realRime)
                     }
                 }
             }
@@ -184,56 +181,6 @@ object RimeDaemon {
     private const val MESSAGE_ID = 2331
     private var restartId = 0
 
-    /**
-     * 缓存的save_options
-     */
-    private var cachedSaveOptions: Set<String>? = null
-
-    /**
-     * 缓存的用户配置值
-     */
-    private var cachedOptionValues: Map<String, Boolean>? = null
-
-    /**
-     * 配置是否已失效
-     */
-    private var configCacheInvalidated = true
-
-    /**
-     * 加载保存的选项
-     */
-    private suspend fun loadSavedOptions() {
-        loadOptionsMutex.withLock {
-            realRime.lifecycle.whenReady {
-                if (configCacheInvalidated) {
-                    val saveOptions = RimeConfig.openConfig("default").use {
-                        it.getList("switcher/save_options", RimeConfig::getString).toSet()
-                    }
-                    cachedSaveOptions = saveOptions
-
-                    if (saveOptions.isNotEmpty()) {
-                        val userOptionValues = mutableMapOf<String, Boolean>()
-                        RimeConfig.openUserConfig("user").use { userConfig ->
-                            for (option in saveOptions) {
-                                val savedValue = userConfig.getBool("var/option/$option")
-                                if (savedValue != null) {
-                                    userOptionValues[option] = savedValue
-                                }
-                            }
-                        }
-                        cachedOptionValues = userOptionValues
-                    }
-
-                    configCacheInvalidated = false
-                }
-
-                cachedOptionValues?.forEach { (option, value) ->
-                    realRime.setRuntimeOption(option, value)
-                }
-            }
-        }
-    }
-
     init {
         createNotificationChannel(
             CHANNEL_ID,
@@ -242,31 +189,8 @@ object RimeDaemon {
         TrimeApplication.getInstance().coroutineScope.launch {
             realRime.messageFlow.collect {
                 handleRimeMessage(it)
-
-                when (it) {
-                    is RimeMessage.DeployMessage -> {
-                        if (it.data == RimeMessage.DeployMessage.State.Start) {
-                            configCacheInvalidated = true
-                        }
-                        if (it.data == RimeMessage.DeployMessage.State.Success) {
-                            launch { loadSavedOptions() }
-                        }
-                    }
-                    is RimeMessage.SchemaMessage -> {
-                        launch { loadSavedOptions() }
-                    }
-                    else -> {}
-                }
             }
         }
-
-        realRime.lifecycle.addObserver(
-            RimeLifecycleObserver { state ->
-                if (state == RimeLifecycle.State.READY) {
-                    TrimeApplication.getInstance().coroutineScope.launch { loadSavedOptions() }
-                }
-            },
-        )
     }
 
     private inline fun sendNotification(

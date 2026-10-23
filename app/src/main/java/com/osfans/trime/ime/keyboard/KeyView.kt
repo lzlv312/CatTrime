@@ -27,6 +27,7 @@ import com.osfans.trime.ime.popup.PopupDelegate
 import com.osfans.trime.util.sp
 import splitties.dimensions.dp
 import timber.log.Timber
+import kotlin.math.roundToInt
 
 @SuppressLint("ClickableViewAccessibility", "ViewConstructor")
 class KeyView(
@@ -56,6 +57,12 @@ class KeyView(
     private val symbolPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
     }
+
+    /**
+     * 键内容的 sp 值按悬浮档位收缩（短边百分比），见 [Keyboard.contentScale]。
+     * 贴底键盘系数为 1；偏移与字号必须走同一系数，否则缩小的键帽里内容仍会溢出。
+     */
+    private fun contentSp(value: Float): Float = sp(value) * keyboard.contentScale
 
     private var cachedIcon: IconicsDrawable? = null
     private var cachedIconName: String? = null
@@ -298,8 +305,9 @@ class KeyView(
         val bg = k.getBackgroundDrawable() ?: return
 
         if (bg is GradientDrawable) {
-            (k.roundCorner ?: keyboard.roundCorner).takeIf { it > 0f }?.let { bg.cornerRadius = dp(it) }
-            (k.keyBorder ?: keyboard.keyBorder).takeIf { it > 0 }?.let { bg.setStroke(dp(it), k.getBorderColor()) }
+            val scale = keyboard.contentScale
+            (k.roundCorner ?: keyboard.roundCorner).takeIf { it > 0f }?.let { bg.cornerRadius = dp(it * scale) }
+            (k.keyBorder ?: keyboard.keyBorder).takeIf { it > 0 }?.let { bg.setStroke(dp((it * scale).roundToInt()), k.getBorderColor()) }
         }
 
         bg.setBounds(
@@ -313,7 +321,13 @@ class KeyView(
 
     private fun drawLabel(canvas: Canvas, label: String) {
         val textColor = key.getTextColor()
-        val textSize = sp(key.keyTextSize.takeIf { it > 0 } ?: if (label.length > 1 && !label.isIconFont) keyboardView.keyLongTextSize else keyboardView.keyTextSize)
+        // 键盘级字号已按 contentScale 缩放，逐键覆盖的字号在这里补上同一系数。
+        val textSize =
+            if (key.keyTextSize > 0) {
+                contentSp(key.keyTextSize)
+            } else {
+                sp(if (label.length > 1 && !label.isIconFont) keyboardView.keyLongTextSize else keyboardView.keyTextSize)
+            }
 
         if (label.isIconFont) {
             drawIcon(canvas, label, textSize.toInt(), textColor, key.keyTextOffsetX, key.keyTextOffsetY)
@@ -330,7 +344,7 @@ class KeyView(
             val fontMetrics = textPaint.fontMetrics
             val adjustmentY = -(fontMetrics.ascent + fontMetrics.descent) / 2f
 
-            canvas.drawText(label, centerX + sp(key.keyTextOffsetX), centerY + adjustmentY + sp(key.keyTextOffsetY), textPaint)
+            canvas.drawText(label, centerX + contentSp(key.keyTextOffsetX), centerY + adjustmentY + contentSp(key.keyTextOffsetY), textPaint)
         }
     }
 
@@ -359,12 +373,12 @@ class KeyView(
 
         icon.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
 
-        val centerX = (width - paddingLeft - paddingRight) / 2f + paddingLeft + sp(offsetX)
+        val centerX = (width - paddingLeft - paddingRight) / 2f + paddingLeft + contentSp(offsetX)
 
         val centerY = when (isTop) {
-            true -> paddingTop + halfSize + sp(offsetY)
-            false -> height - paddingBottom - size + sp(offsetY)
-            null -> (height - paddingTop - paddingBottom) / 2f + paddingTop + sp(offsetY)
+            true -> paddingTop + halfSize + contentSp(offsetY)
+            false -> height - paddingBottom - size + contentSp(offsetY)
+            null -> (height - paddingTop - paddingBottom) / 2f + paddingTop + contentSp(offsetY)
         }
 
         icon.setBounds(
@@ -395,7 +409,13 @@ class KeyView(
         if (!isTop && keyboardView.hideKeyHint) return
 
         val textColor = key.getSymbolColor()
-        val textSize = sp(key.symbolTextSize.takeIf { it > 0f } ?: keyboardView.symbolTextSize)
+        // 键盘级符号字号已按 contentScale 缩放，逐键覆盖的字号在这里补上同一系数。
+        val textSize =
+            if (key.symbolTextSize > 0f) {
+                contentSp(key.symbolTextSize)
+            } else {
+                sp(keyboardView.symbolTextSize)
+            }
         val offsetX = if (isTop) key.keySymbolOffsetX else key.keyHintOffsetX
         val offsetY = if (isTop) key.keySymbolOffsetY else key.keyHintOffsetY
 
@@ -448,9 +468,9 @@ class KeyView(
         val linePositions = mutableListOf<Pair<Float, Float>>()
 
         var currentY = if (isTop) {
-            paddingTop - fontMetrics.top + sp(offsetY)
+            paddingTop - fontMetrics.top + contentSp(offsetY)
         } else {
-            height - paddingBottom - fontMetrics.bottom + sp(offsetY)
+            height - paddingBottom - fontMetrics.bottom + contentSp(offsetY)
         }
 
         if (isDynamic) {
@@ -479,7 +499,7 @@ class KeyView(
             }
         }
 
-        val centerX = (width - paddingLeft - paddingRight) / 2f + paddingLeft + sp(offsetX)
+        val centerX = (width - paddingLeft - paddingRight) / 2f + paddingLeft + contentSp(offsetX)
 
         return Pair(centerX, linePositions)
     }

@@ -11,6 +11,7 @@ import com.osfans.trime.data.prefs.PreferenceDelegateEnum
 enum class PopupCandidatesLayout(override val stringRes: Int) : PreferenceDelegateEnum {
     AUTOMATIC(R.string.automatic),
     HORIZONTAL(R.string.horizontal),
+    HORIZONTAL_REVERSE(R.string.horizontal_reverse),
     VERTICAL(R.string.vertical),
     VERTICAL_REVERSE(R.string.vertical_reverse),
 }

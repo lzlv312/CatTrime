@@ -21,6 +21,7 @@ import com.osfans.trime.daemon.launchOnReady
 import com.osfans.trime.data.prefs.AppPrefs
 import com.osfans.trime.data.theme.ColorManager
 import com.osfans.trime.data.theme.KeyActionManager
+import com.osfans.trime.data.theme.Theme
 import com.osfans.trime.data.theme.ThemeManager
 import com.osfans.trime.ime.candidates.popup.PopupCandidatesMode
 import com.osfans.trime.ime.clipboard.ClipboardWindow
@@ -63,6 +64,7 @@ class CommonKeyboardActionListener {
     private val liquidWindow: LiquidWindow by di.instance()
 
     private val prefs = AppPrefs.defaultInstance()
+    private val theme: Theme by di.instance()
 
     private fun showDialog(dialog: suspend (RimeApi) -> Dialog) {
         rime.launchOnReady { api ->
@@ -158,9 +160,9 @@ class CommonKeyboardActionListener {
 
                 rime.launchOnReady { api ->
                     service.lifecycleScope.launch {
-                        val isEnabled = api.getRuntimeOption(option)
                         val isComposing = api.statusCached.isComposing
-                        api.setRuntimeOption(option, !isEnabled)
+                        // 读与写必须在同一个引擎操作里：维护期的假读会把“当前是中文”当成事实去取反
+                        api.updateRuntimeOption(option) { !it } ?: return@launch
                         if (option == "ascii_mode" && isComposing) {
                             api.getRawInput().takeIf { it.isNotEmpty() }?.let {
                                 service.commitText(it)
@@ -371,7 +373,20 @@ class CommonKeyboardActionListener {
 
             private fun switchOneHandMode() {
                 val preference = prefs.keyboard.oneHandMode
-                preference.setValue((preference.getValue() + 1) % 3)
+                // 没有对应单侧边距的模式与禁用无区别，纳入循环只会产生无意义的切换：
+                // 左/右手模式分别依赖 keyboard_padding_right / keyboard_padding_left。
+                val ring = buildList {
+                    add(AppPrefs.Keyboard.OneHandMode.DISABLE)
+                    if (theme.generalStyle.keyboardPaddingRight > 0) {
+                        add(AppPrefs.Keyboard.OneHandMode.LEFT)
+                    }
+                    if (theme.generalStyle.keyboardPaddingLeft > 0) {
+                        add(AppPrefs.Keyboard.OneHandMode.RIGHT)
+                    }
+                }
+                if (ring.size == 1) return
+                val index = ring.indexOf(preference.getValue()).coerceAtLeast(0)
+                preference.setValue(ring[(index + 1) % ring.size])
             }
 
             private fun handleSettings(action: KeyAction) {

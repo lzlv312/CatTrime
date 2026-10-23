@@ -32,9 +32,11 @@ class KeyboardView(
 
     internal val labelEnter: String
         get() = enterKeyDisplay.keyLabel
-    internal val keyTextSize = theme.generalStyle.keyTextSize
-    internal val keyLongTextSize = theme.generalStyle.keyLongTextSize.takeIf { it > 0 } ?: keyTextSize
-    internal val symbolTextSize = theme.generalStyle.symbolTextSize.takeIf { it > 0 } ?: keyTextSize
+
+    // 悬浮卡片下字号随档位收缩（见 [Keyboard.contentScale]），贴底键盘系数为 1。
+    internal val keyTextSize = theme.generalStyle.keyTextSize * keyboard.contentScale
+    internal val keyLongTextSize = theme.generalStyle.keyLongTextSize.takeIf { it > 0 }?.times(keyboard.contentScale) ?: keyTextSize
+    internal val symbolTextSize = theme.generalStyle.symbolTextSize.takeIf { it > 0 }?.times(keyboard.contentScale) ?: keyTextSize
     internal val popupOnKeyPress by AppPrefs.defaultInstance().keyboard.popupOnKeyPress
     internal val hookShiftArrow: Boolean by AppPrefs.defaultInstance().keyboard.hookShiftArrow
     internal val hideKeySymbol: Boolean by AppPrefs.defaultInstance().keyboard.hideKeySymbol

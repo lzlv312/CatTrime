@@ -34,6 +34,12 @@ class NativeCacheHashPlugin : Plugin<Project> {
                         appendLine(ndkVersion)
                         appendLine(buildAbiOverride)
                         appendLine(runCmd("git submodule status"))
+                        // Patches modify submodule sources in place, so a cached
+                        // prebuilt JNI build would otherwise skip them.
+                        fileTree(rootProject.file("patches")).sortedBy { it.name }.forEach { patch ->
+                            appendLine(patch.name)
+                            appendLine(sha256(patch))
+                        }
                         fileTree("src/main/jni/cmake").forEach { module ->
                             appendLine(sha256(module))
                         }

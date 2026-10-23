@@ -20,6 +20,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
@@ -81,6 +83,14 @@ class Rime :
     private val showAsciiSwitchTips by AppPrefs.defaultInstance().general.asciiSwitchTips
 
     private var asciiSwitchTipsJob: Job? = null
+    private var deployStatusJob: Job? = null
+
+    // future.get() 一旦被取走就作废，两次 join 只能排队而不能并发
+    private val maintenanceJoinMutex = Mutex()
+
+    // 活动键盘要求的 ascii 模式：重建的引擎不经过 attach，部署结束按它补一次
+    @Volatile
+    var keyboardAsciiMode: Boolean? = null
     private var isNullInputType = true
     private var lastAsciiTipsText = ""
     private var pagingMode = false
@@ -247,6 +257,21 @@ class Rime :
         getRimeOption(option)
     }
 
+    override suspend fun updateRuntimeOption(
+        option: String,
+        transform: (Boolean) -> Boolean,
+    ): Boolean? = withRimeContext {
+        // 无 session 时 get_current_schema 回答空串，而 set_option 会被 librime 静默丢弃
+        if (getCurrentRimeSchema().isEmpty()) {
+            null
+        } else {
+            val current = getRimeOption(option)
+            // 写入即通知，通知是标签重绘与状态同步的唯一来源：这里不做"值没变就省一次"
+            setRimeOption(option, transform(current))
+            current
+        }
+    }
+
     override suspend fun setNullInputType(value: Boolean) = withRimeContext {
         isNullInputType = value
     }
@@ -256,6 +281,103 @@ class Rime :
         limit: Int,
     ): Array<CandidateProto> = withRimeContext {
         getRimeCandidates(startIndex, limit)
+    }
+
+    override suspend fun peekCandidatesBySequence(
+        sequence: String,
+        limit: Int,
+    ): Array<CandidateProto> = withRimeContext {
+        val hadComposition = getRimeRawInput().isNotEmpty()
+        val asciiMode = getRimeOption("ascii_mode")
+        val asciiPunch = getRimeOption("ascii_punch")
+        val needsSwitch = asciiMode || asciiPunch
+        clearRimeComposition()
+        val candidates = try {
+            // The symbol presets live behind '/', which both switches eat as-is.
+            // Only flip a switch that is actually in the way: set_option notifies
+            // listeners even when the value ends up unchanged.
+            if (needsSwitch) {
+                silencingOptionMessages = true
+                setRimeOption(ASCII_LEASE_MARKER, true)
+            }
+            if (asciiMode) setRimeOption("ascii_mode", false)
+            if (asciiPunch) setRimeOption("ascii_punch", false)
+            readSymbolCandidates(sequence, limit)
+        } finally {
+            // 标记随旧引擎一起消失：引擎若被部署重建过，把英文写回去就是在制造偶发英文
+            if (needsSwitch && getRimeOption(ASCII_LEASE_MARKER)) {
+                if (asciiMode) setRimeOption("ascii_mode", true)
+                if (asciiPunch) setRimeOption("ascii_punch", true)
+            }
+            silencingOptionMessages = false
+            // 解除标记的通知照常外传，用来对齐缓存
+            if (needsSwitch) setRimeOption(ASCII_LEASE_MARKER, false)
+        }
+        clearRimeComposition()
+        getRimeCommit()
+        // Nobody else emits, so a composition the caller could still see has to
+        // be announced once it is gone.
+        if (hadComposition) emitResponse()
+        candidates
+    }
+
+    private fun readSymbolCandidates(
+        sequence: String,
+        limit: Int,
+    ): Array<CandidateProto> {
+        if (!simulateRimeKeySequence(sequence)) return emptyArray()
+        // A commit means the engine consumed the sequence as ordinary input, i.e.
+        // the schema has no symbol preset under this name.
+        if (!getRimeCommit().text.isNullOrEmpty()) return emptyArray()
+        return getRimeCandidates(0, limit)
+    }
+
+    override suspend fun insertSymbolSequence(sequence: String) = withRimeContext<Unit> {
+        val asciiMode = getRimeOption("ascii_mode")
+        val asciiPunch = getRimeOption("ascii_punch")
+        val needsSwitch = asciiMode || asciiPunch
+        try {
+            if (needsSwitch) setRimeOption(ASCII_LEASE_MARKER, true)
+            if (asciiMode) setRimeOption("ascii_mode", false)
+            if (asciiPunch) setRimeOption("ascii_punch", false)
+            clearComposition()
+            simulateKeySequence(sequence)
+        } finally {
+            // 与预读同一判据：标记没了说明引擎换过，这时把英文写回去就是偶发英文
+            if (needsSwitch && getRimeOption(ASCII_LEASE_MARKER)) {
+                if (asciiPunch) setRimeOption("ascii_punch", true)
+                // 还挂着待选编码就留在中文：英文态会把后续按键当原始输入塞进编码
+                if (asciiMode && getRimeRawInput().isEmpty()) setRimeOption("ascii_mode", true)
+            }
+            if (needsSwitch) setRimeOption(ASCII_LEASE_MARKER, false)
+        }
+    }
+
+    override suspend fun beginLiquidAsciiLease(): Boolean = withRimeContext {
+        // 无 session 时读到的英文态是 JNI 默认值，不是用户选的，不能据此接租约
+        if (getCurrentRimeSchema().isEmpty()) {
+            false
+        } else if (!getRimeOption("ascii_mode")) {
+            false
+        } else {
+            setRimeOption(LIQUID_LEASE_MARKER, true)
+            true
+        }
+    }
+
+    override suspend fun endLiquidAsciiLease(): Boolean = withRimeContext {
+        // 标记随旧引擎一起消失：引擎换过之后把英文写回去就是偶发英文，租约作废
+        if (!getRimeOption(LIQUID_LEASE_MARKER)) {
+            true
+        } else if (getRimeRawInput().isNotEmpty()) {
+            // 待选编码还挂着：英文态会把后续按键当原始输入塞进编码
+            false
+        } else {
+            // 写入即通知，通知是标签重绘与状态同步的唯一来源：这里不做"值没变就省一次"
+            setRimeOption("ascii_mode", true)
+            setRimeOption(LIQUID_LEASE_MARKER, false)
+            true
+        }
     }
 
     override suspend fun setCandidatePagingMode(enabled: Boolean) = withRimeContext {
@@ -340,16 +462,26 @@ class Rime :
             }
             is RimeMessage.OptionMessage -> {
                 // Option change won't trigger response update
+                val wasAsciiMode = statusCached.isAsciiMode
                 val status = getRimeStatus()
                 statusCached = status
                 updateSchemaCached(status)
-                if (it.data.option == "ascii_mode") {
+                // librime notifies on every set_option, even one that changes
+                // nothing; the tip is only worth showing when the mode moved.
+                if (it.data.option == "ascii_mode" && wasAsciiMode != status.isAsciiMode) {
                     showAsciiSwitchTips(status)
                 }
             }
             is RimeMessage.DeployMessage -> {
-                if (it.data == RimeMessage.DeployMessage.State.Start) {
-                    OpenCCDictManager.buildOpenCCDict()
+                when (it.data) {
+                    RimeMessage.DeployMessage.State.Start -> {
+                        OpenCCDictManager.buildOpenCCDict()
+                        deployStatusJob?.cancel()
+                    }
+                    // 结束通知是维护线程在返回之前发的，所以收到它还得等线程
+                    RimeMessage.DeployMessage.State.Success,
+                    RimeMessage.DeployMessage.State.Failure,
+                    -> publishStatusAfterDeploy()
                 }
             }
             is RimeMessage.CompositionMessage -> {
@@ -383,6 +515,25 @@ class Rime :
                     SchemaItem(schemaId, schemaName),
                 ),
             )
+        }
+    }
+
+    // 部署后补一次真实状态：方案变了由 updateSchemaCached 通知出去，中英按键盘约定还回来
+    private fun publishStatusAfterDeploy() {
+        deployStatusJob?.cancel()
+        deployStatusJob = lifecycleScope.launch {
+            maintenanceJoinMutex.withLock {
+                withContext(Dispatchers.IO) { joinRimeMaintenanceThread() }
+            }
+            val status = withRimeContext { getRimeStatus() }
+            // 走通知而非直写缓存：方案同步与键面重绘都以通知为唯一来源
+            if (status.schemaId.isEmpty()) return@launch
+            handleRimeMessage(8, arrayOf(status))
+            // 重建的引擎回方案默认，键盘的约定在这期间没人兑现，补一次真实写入让通知重画
+            val target = keyboardAsciiMode ?: return@launch
+            if (target != status.isAsciiMode) {
+                withRimeContext { setRimeOption("ascii_mode", target) }
+            }
         }
     }
 
@@ -442,6 +593,16 @@ class Rime :
     companion object {
         private val DEPLOY_TIMEOUT = 15.minutes
 
+        // `_` 前缀是 session 局部选项，换方案或引擎重建即消失：标记临时让路属于哪台引擎
+        private const val ASCII_LEASE_MARKER = "_trime_ascii_lease"
+
+        // 同上，但活过一次按键：液态面板期间的英文态归属，编码清空才结算
+        private const val LIQUID_LEASE_MARKER = "_trime_liquid_lease"
+
+        // 预读期间吞掉开关通知防中间态外泄
+        @Volatile
+        private var silencingOptionMessages = false
+
         private val messageFlow_ =
             MutableSharedFlow<RimeMessage<*>>(
                 extraBufferCapacity = 15,
@@ -465,6 +626,9 @@ class Rime :
 
         @JvmStatic
         external fun exitRime()
+
+        @JvmStatic
+        external fun joinRimeMaintenanceThread()
 
         @JvmStatic
         external fun deployRimeSchemaFile(schemaFile: String): Boolean
@@ -566,6 +730,7 @@ class Rime :
             params: Array<Any>,
         ) {
             val message = RimeMessage.nativeCreate(type, params)
+            if (message is RimeMessage.OptionMessage && silencingOptionMessages) return
             Timber.d("Handling $message")
             rimeMessageHandlers.forEach { it.invoke(message) }
             messageFlow_.tryEmit(message)

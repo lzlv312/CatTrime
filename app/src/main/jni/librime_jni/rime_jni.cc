@@ -203,6 +203,8 @@ class Rime {
     rime->finalize();
   }
 
+  void joinMaintenance() { rime->join_maintenance_thread(); }
+
   bool sync() {
     session_.reset();
     return rime->sync_user_data();
@@ -270,6 +272,14 @@ extern "C" JNIEXPORT void JNICALL Java_com_osfans_trime_core_Rime_startupRime(
 extern "C" JNIEXPORT void JNICALL
 Java_com_osfans_trime_core_Rime_exitRime(JNIEnv *env, jclass /* thiz */) {
   Rime::Instance().exit();
+}
+
+// librime only hands out sessions once the maintenance thread returns, so
+// waiting for it beats guessing how long a deploy takes
+extern "C" JNIEXPORT void JNICALL
+Java_com_osfans_trime_core_Rime_joinRimeMaintenanceThread(JNIEnv *env,
+                                                          jclass /* thiz */) {
+  Rime::Instance().joinMaintenance();
 }
 
 // deployment

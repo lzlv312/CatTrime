@@ -226,22 +226,18 @@ internal fun palette(
         // tracks day/night by itself (see `create`), so it points at itself to survive that branch.
         "light_scheme" to DynamicColorScheme.ID,
         "dark_scheme" to DynamicColorScheme.ID,
-        // Backgrounds.
+        // Backgrounds. The `*_background` keys are deliberately absent: they are the vocabulary's
+        // slots for a theme's background *image*, and naming one here would trade that image for a
+        // tone. Left alone they fall through `BuiltinFallbackColors` to the colour keys below, so a
+        // colour theme reads the same tone either way and an image theme keeps its picture.
         "back_color" to background,
-        "root_background" to background,
         "keyboard_back_color" to background,
-        "candidate_background" to background,
-        "liquid_keyboard_background" to background,
         "key_back_color" to keySurface,
-        // 预编辑区/候选窗口是窗口本身的一部分，和 `back_color` 同层：取键面灰
-        // （keySurface）会让它在白色键盘上方隐约发灰，与主题里 text_back_color
-        // 回退到 back_color 的语义也不一致。
-        "text_back_color" to background,
+        "text_back_color" to keySurface,
         "long_text_back_color" to keySurface,
         "popup_back_color" to keySurface,
-        // Key preview: its fallbacks point at the key surface (`key_back_color` /
-        // `key_text_color`), and the live preview uses `popup_*` for the same reason. An accent
-        // here would read as a highlighted key rather than as the key itself.
+        // Key press bubble. A legacy name (the live popup paints with `popup_*`), kept for the
+        // theme's own references; the schema default points it at the key surface.
         "preview_back_color" to keySurface,
         "preview_text_color" to onKeySurface,
         // Function keys: shift, backspace, return, the symbol and number rows, the keys that only
@@ -262,7 +258,9 @@ internal fun palette(
         "hilited_key_text_color" to onPrimary,
         "hilited_key_symbol_color" to onPrimary,
         "hilited_key_border_color" to primary,
-        // Toggled keys.
+        // Toggled keys. Solid primary, which reads the same as a pressed key — the vocabulary
+        // default says the same (`on_key_back_color` falls back to `hilited_key_back_color`). The
+        // container alternative collides with `functionSurface`, which is accent1_100 by day.
         "on_key_back_color" to primary,
         "on_key_text_color" to onPrimary,
         "on_key_symbol_color" to onPrimary,
@@ -274,12 +272,13 @@ internal fun palette(
         // Lines.
         "border_color" to outline,
         "candidate_separator_color" to outline,
-        // Text and symbols.
+        // Text and symbols. The candidate's index label is secondary information, so it sits at the
+        // same rank as a key's symbol rather than competing with the candidate text next to it.
         "candidate_text_color" to onKeySurface,
         "comment_text_color" to onKeySurfaceVariant,
         "long_text_color" to onKeySurface,
         "popup_text_color" to onKeySurface,
-        "label_color" to primary,
+        "label_color" to onKeySurfaceVariant,
         "text_color" to primary,
         // Highlighted rows and keys.
         "hilited_back_color" to primaryContainer,

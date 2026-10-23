@@ -8,12 +8,14 @@ package com.osfans.trime.data.prefs
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.annotation.Keep
+import androidx.core.content.edit
 import com.osfans.trime.R
 import com.osfans.trime.data.base.DataManager
 import com.osfans.trime.ime.candidates.compact.CompactCandidateMode
 import com.osfans.trime.ime.candidates.popup.PopupCandidatesLayout
 import com.osfans.trime.ime.candidates.popup.PopupCandidatesMode
 import com.osfans.trime.ime.composition.PopupPosition
+import com.osfans.trime.ime.composition.PreeditPosition
 import com.osfans.trime.ime.core.InlinePreeditMode
 import com.osfans.trime.util.InputMethodUtils
 import com.osfans.trime.util.appContext
@@ -126,12 +128,36 @@ class AppPrefs(
         companion object {
             const val PID = "general__pid"
             const val PREVIOUS_KEYBOARD_IDS = "internal__previous_keyboard_ids"
-            const val INITIALIZE_KEYBOARD_ID = "internal__initialize_keyboard_id"
+            const val REMEMBERED_KEYBOARD_ID = "internal__initialize_keyboard_id"
+            const val KEYBOARD_MEMORY_THEME = "internal__keyboard_memory_theme"
+            const val KEYBOARD_MEMORY_SCHEMA = "internal__keyboard_memory_schema"
         }
 
         val pid = int(PID, 0)
         val previousKeyboardIds = string(PREVIOUS_KEYBOARD_IDS, "")
-        val initializeKeyboardId = string(INITIALIZE_KEYBOARD_ID, "")
+
+        /** 用户最后显式选择的 lock 键盘，应用重启后恢复。 */
+        val rememberedKeyboardId = string(REMEMBERED_KEYBOARD_ID, "")
+
+        /** [rememberedKeyboardId] 所属的主题；换主题后需要重新按方案匹配。 */
+        val keyboardMemoryTheme = string(KEYBOARD_MEMORY_THEME, "")
+
+        /** [rememberedKeyboardId] 记录时的方案；方案变了需要重新匹配。 */
+        val keyboardMemorySchema = string(KEYBOARD_MEMORY_SCHEMA, "")
+
+        /**
+         * 一次性写入键盘记忆：id 与方案在同一个事务里落盘，
+         * 避免一次切换触发两次 [SharedPreferences.Editor.apply]。
+         */
+        fun setKeyboardMemory(
+            keyboardId: String,
+            schemaId: String?,
+        ) {
+            sharedPreferences.edit {
+                putString(REMEMBERED_KEYBOARD_ID, keyboardId)
+                if (schemaId != null) putString(KEYBOARD_MEMORY_SCHEMA, schemaId)
+            }
+        }
     }
 
     class General(
@@ -172,13 +198,12 @@ class AppPrefs(
             const val FLOATING_KEYBOARD_WIDTH = "floating_keyboard_width"
             const val FLOATING_KEYBOARD_HEIGHT = "floating_keyboard_height"
             const val FLOATING_KEYBOARD_KEEP_RATIO = "floating_keyboard_keep_ratio"
-            const val FLOATING_KEYBOARD_BAR_POSITION = "floating_keyboard_bar_position"
             const val FLOATING_KEYBOARD_CORNER_RADIUS = "floating_keyboard_corner_radius"
             const val FLOATING_KEYBOARD_AUTO_LANDSCAPE = "floating_keyboard_auto_landscape"
             const val FLOATING_KEYBOARD_OFFSET_X = "floating_keyboard_offset_x"
             const val FLOATING_KEYBOARD_OFFSET_Y = "floating_keyboard_offset_y"
-            const val FLOATING_PREEDIT_OFFSET_X = "floating_preedit_offset_x"
-            const val FLOATING_PREEDIT_OFFSET_Y = "floating_preedit_offset_y"
+
+            const val FLOATING_PREEDIT_INSET_X = "floating_preedit_inset_x"
             const val LANDSCAPE_MODE = "keyboard_landscape_mode"
             const val SPLIT_SPACE_PERCENT = "keyboard_split_space"
 
@@ -229,9 +254,10 @@ class AppPrefs(
             ALWAYS(R.string.always),
         }
 
-        enum class FloatingBarPosition(override val stringRes: Int) : PreferenceDelegateEnum {
-            TOP(R.string.floating_bar_top),
-            BOTTOM(R.string.floating_bar_bottom),
+        enum class OneHandMode(override val stringRes: Int) : PreferenceDelegateEnum {
+            DISABLE(R.string.disable),
+            LEFT(R.string.left_hand),
+            RIGHT(R.string.right_hand),
         }
 
         val floatingKeyboard = switch(
@@ -258,9 +284,9 @@ class AppPrefs(
             R.string.floating_keyboard_width,
             FLOATING_KEYBOARD_WIDTH,
             80,
-            // The drag handle stops at FLOATING_KEYBOARD_MIN_WIDTH_DP, which on a typical phone
-            // lands around 40% of the screen's short side. Keeping the slider's floor below that
-            // means a width reached by dragging is never shown as something else in settings.
+            // Pinching stops at FLOATING_KEYBOARD_MIN_WIDTH_DP, which on a typical phone lands
+            // around 40% of the screen's short side. Keeping the slider's floor below that means
+            // a width reached by pinching is never shown as something else in settings.
             40,
             100,
             "%",
@@ -285,43 +311,23 @@ class AppPrefs(
             false,
             R.string.floating_keyboard_keep_ratio_summary,
         ) { floatingSettingsEnabled() }
-        val floatingPreeditOffsetX = int(
-            R.string.floating_preedit_offset_x,
-            FLOATING_PREEDIT_OFFSET_X,
-            16,
-            -120,
-            120,
-            "dp",
-            1,
-        ) { floatingSettingsEnabled() }
-        val floatingPreeditOffsetY = int(
-            R.string.floating_preedit_offset_y,
-            FLOATING_PREEDIT_OFFSET_Y,
+
+        // 悬浮编码区左右边距：卡片宽度两侧各留出的边距，0..48dp。
+        // 上限 48：最窄卡片 160dp 时两侧共吃掉 96dp、仍留 64dp 给编码文本；再大就只会在
+        // 小卡片上把编码行挤没，在大卡片上却几乎看不出变化。设置页顺序 = 注册顺序。
+        val floatingPreeditInsetX = int(
+            R.string.floating_preedit_inset_x,
+            FLOATING_PREEDIT_INSET_X,
+            20,
             0,
-            -64,
-            64,
+            48,
             "dp",
             1,
         ) { floatingSettingsEnabled() }
         val floatingKeyboardOffsetX = int(FLOATING_KEYBOARD_OFFSET_X, 0)
         val floatingKeyboardOffsetY = int(FLOATING_KEYBOARD_OFFSET_Y, 0)
 
-        // 悬浮键盘拖动条位置：注册顺序即设置页顺序，需要显示在“启用横屏模式”之上。
-        val floatingKeyboardBarPosition =
-            list(
-                R.string.floating_keyboard_bar_position,
-                FLOATING_KEYBOARD_BAR_POSITION,
-                FloatingBarPosition.TOP,
-                object : PreferenceDelegate.Serializer<FloatingBarPosition> {
-                    override fun serialize(t: FloatingBarPosition) = t.name
-
-                    override fun deserialize(raw: String) = FloatingBarPosition.entries.find { it.name.equals(raw, ignoreCase = true) }
-                },
-                FloatingBarPosition.entries.toList(),
-                FloatingBarPosition.entries.map { it.stringRes },
-            ) { floatingSettingsEnabled() }
-
-        // 悬浮键盘圆角半径：注册顺序即设置页顺序，紧跟拖动条位置之后。0 = 直角。
+        // 悬浮键盘圆角半径：注册顺序即设置页顺序。0 = 直角。
         val floatingKeyboardCornerRadius =
             int(
                 R.string.floating_keyboard_corner_radius,
@@ -332,6 +338,9 @@ class AppPrefs(
                 "dp",
                 2,
             ) { floatingSettingsEnabled() }
+
+        // 注册顺序即设置页顺序，单手模式需显示在“启用横屏模式”之上。
+        val oneHandMode = enum(R.string.one_hand_mode, ONE_HAND_MODE, OneHandMode.DISABLE)
 
         val landscapeMode = enum(R.string.enable_landscape_mode, LANDSCAPE_MODE, LandscapeMode.NEVER)
         val splitSpacePercent = int(
@@ -348,9 +357,6 @@ class AppPrefs(
         val hideInputBar = switch(R.string.hide_input_bar, HIDE_INPUT_BAR, false)
         val hideKeySymbol = switch(R.string.hide_key_symbol, HIDE_KEY_SYMBOL, false)
         val hideKeyHint = switch(R.string.hide_key_hint, HIDE_KEY_HINT, false)
-
-        // 0 normal, 1 left-hand, 2 right-hand
-        val oneHandMode = int(R.string.one_hand_mode, ONE_HAND_MODE, 0, 0, 2)
 
         val soundOnKeyPress = switch(R.string.sound_on_keypress, SOUND_ON_KEYPRESS, false)
         val soundVolume = int(
@@ -515,6 +521,7 @@ class AppPrefs(
             const val MODE = "show_candidates_window"
             const val LAYOUT = "candidates_layout"
             const val POSITION = "candidates_window_position"
+            const val PREEDIT_POSITION = "candidates_window_preedit_position"
             const val BACKGROUND_ALPHA = "candidates_window_background_alpha"
             const val ITEM_BACKGROUND = "candidates_item_background"
             const val ITEM_SPACING = "candidates_item_spacing"
@@ -525,6 +532,15 @@ class AppPrefs(
         val mode = enum(R.string.show_candidates_window, MODE, PopupCandidatesMode.DISABLED)
         val layout = enum(R.string.candidates_layout, LAYOUT, PopupCandidatesLayout.AUTOMATIC)
         val position = enum(R.string.candidates_window_position, POSITION, PopupPosition.BOTTOM_LEFT)
+
+        /**
+         * 预编辑容器在候选窗口内部靠哪条边：靠顶时候选列表在它下方，靠底时列表在它上方。
+         *
+         * 只动窗口内部，与 [position]（窗口在屏幕上的位置）无关。翻页提示始终贴在预编辑行的
+         * 右缘，因此也跟着它一起上下移动。
+         */
+        val preeditPosition =
+            enum(R.string.candidates_preedit_position, PREEDIT_POSITION, PreeditPosition.TOP)
 
         /**
          * Opacity of the window's own background, in percent.
@@ -667,7 +683,7 @@ class AppPrefs(
             R.string.clipboard_extract_rules,
             CLIPBOARD_EXTRACT_RULES,
             "",
-            R.string.a_regular_expression_per_line,
+            R.string.clipboard_extract_rules_hint,
         ) { clipboardListening.getValue() }
         val clipboardSuggestion = switch(
             R.string.clipboard_suggestion,

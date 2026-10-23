@@ -89,13 +89,8 @@ class LiquidAdapter(
                         context.dp(theme.liquidKeyboard.keyHeight),
                     ).apply {
                         flexGrow = 1f
-                        minWidth = if (currentDataType == LiquidData.Type.HISTORY) {
-                            context.dp(theme.liquidKeyboard.singleWidth)
-                        } else {
-                            0
-                        }
+                        minWidth = context.dp(theme.liquidKeyboard.singleWidth)
                     }
-                    forceLayout()
                 }
             }
             VIEW_TYPE_FIXED -> {

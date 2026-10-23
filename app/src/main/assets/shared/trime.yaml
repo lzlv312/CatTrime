@@ -132,9 +132,11 @@ fallback_colors:
 #  shadow_color: border_color
 #  root_background: back_color # 整个键盘区+候选栏的背景图/色
 #  candidate_background: back_color #候选栏的整体背景图/色
+#  candidate_panel_background: candidate_background #展开候选面板的背景图/色
+#  candidate_window_background: text_back_color #候选窗口的整体背景图/色
 #  keyboard_back_color: border_color #键盘区的背景图/色
 #  liquid_keyboard_background: keyboard_back_color # liquidKeyboard的背景图/色
-#  text_back_color: back_color #编码区背景，即悬浮窗背景
+#  text_back_color: back_color #编码区背景
 #  long_text_back_color: key_back_color #长文本按键的背景(剪贴板）
 
 preset_color_schemes:
@@ -738,7 +740,6 @@ liquid_keyboard:
       - ……
       - { click: "-" }
       - { click: "——", label: "破折" }
-      - { click: "" } # 内容为空可以强制令键盘从此处新起一行
       - （
       - ）
       - 【

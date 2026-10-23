@@ -28,9 +28,10 @@ class UnrolledCandidateLayout(
 
     init {
         id = R.id.unrolled_candidate_view
+        // 面板铺满整块键盘区，不复用候选栏那条横条的背景
         background =
             ColorManager.getDecorDrawable(
-                "candidate_background",
+                "candidate_panel_background",
                 "candidate_border_color",
                 dp(theme.generalStyle.candidateBorder),
                 dp(theme.generalStyle.candidateBorderRound),

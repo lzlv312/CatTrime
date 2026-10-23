@@ -9,6 +9,7 @@ import android.os.Parcelable
 import com.osfans.trime.data.theme.model.ColorScheme
 import com.osfans.trime.data.theme.model.GeneralStyle
 import com.osfans.trime.data.theme.model.LiquidKeyboard
+import com.osfans.trime.data.theme.model.MenuKeyboard
 import com.osfans.trime.data.theme.model.Preedit
 import com.osfans.trime.data.theme.model.PresetKey
 import com.osfans.trime.data.theme.model.TextKeyboard
@@ -32,6 +33,7 @@ data class Theme(
     val colorSchemes: List<ColorScheme>,
     val fallbackColors: Map<String, String>,
     val toolBar: ToolBar,
+    val menuKeyboard: MenuKeyboard? = null,
 ) : Parcelable {
     companion object {
         fun decode(node: Node.Mapping): Theme = Theme(
@@ -60,6 +62,7 @@ data class Theme(
             fallbackColors = node["fallback_colors"]?.mapping?.entries?.associate {
                 it.key.string!! to it.value.string!!
             } ?: emptyMap(),
+            menuKeyboard = node["menu_keyboard"]?.mapping?.let(MenuKeyboard::decode),
         )
     }
 }

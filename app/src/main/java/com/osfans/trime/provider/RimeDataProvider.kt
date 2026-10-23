@@ -72,7 +72,8 @@ class RimeDataProvider : DocumentsProvider() {
     private fun fileFromDocId(docId: String) = File(docIdPrefix, docId)
 
     override fun onCreate(): Boolean {
-        baseDir = context!!.getExternalFilesDir(null) ?: return false
+        // rootId is the docId relative to baseDir.parent, must match buildDocumentsProviderIntent()
+        baseDir = context?.getExternalFilesDir(null) ?: return false
         docIdPrefix = "${baseDir.parent}${File.separator}"
         textFilePaths = Array(TEXT_FILES.size) { baseDir.resolve(TEXT_FILES[it]).absolutePath }
         return true

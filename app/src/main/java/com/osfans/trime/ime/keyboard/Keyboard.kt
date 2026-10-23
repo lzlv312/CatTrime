@@ -16,6 +16,19 @@ import splitties.bitflags.hasFlag
 import splitties.dimensions.dp
 import kotlin.math.abs
 import kotlin.math.pow
+import kotlin.math.roundToInt
+
+/**
+ * 悬浮键区内容的统一缩放系数：宽/高档位中较小者（短边的百分比）。
+ *
+ * 键背景随卡片档位收缩，字号/偏移却来自主题的固定 sp 值——不缩放就是“背景小、文字
+ * 大”，固定偏移还会把内容顶出键帽。取两个档位中较小者，任一方向变小时内容都按它
+ * 收缩，最坏情况下也不会溢出；贴底键盘不调用它（[Keyboard.contentScale] 恒为 1）。
+ */
+internal fun floatingContentScale(
+    widthPercent: Int,
+    heightPercent: Int,
+): Float = minOf(widthPercent, heightPercent).coerceIn(0, 100) / 100f
 
 /** 從YAML中加載鍵盤配置，包含多個[按鍵][Key]。  */
 @Suppress("ktlint:standard:property-naming")
@@ -26,12 +39,40 @@ class Keyboard(
     selfConfig: TextKeyboard? = null,
 ) {
 
+    /**
+     * 构造时烘焙进键盘几何的悬浮宽/高档位（%）。
+     *
+     * 网格的像素几何（行高缩放、key.x/y）在构造时按当次档位算死，视图测量高度也来自
+     * 这套几何（KeyboardView.onMeasure 用 [height]，无视父容器规格）——档位真正的
+     * 载体是本对象而不是偏好。InputView 归一缩放时以此为基准：宽度变化触发的
+     * refreshKeyboards 会按当前偏好重新构造本对象（重新烘焙），基准随新对象走、
+     * 缩放立即归一——否则布局已烘焙新档位而 scaleY 仍持旧比例，同一档位被施加两次，
+     * 表现为松手后键盘高度被额外压扁（宽度因 scaleX 恒归一而不受影响）。
+     */
+    val bakedFloatingWidthPercent: Int = AppPrefs.defaultInstance().keyboard.floatingKeyboardWidth.getValue()
+
+    val bakedFloatingHeightPercent: Int = AppPrefs.defaultInstance().keyboard.floatingKeyboardHeight.getValue()
+
+    /**
+     * 键内容（字号、符号、偏移、间距、圆角）的统一缩放系数。
+     *
+     * 悬浮卡片的按键背景随宽/高档位收缩，而键内容的字号与偏移来自主题的固定 sp 值，
+     * 不跟着缩就会“背景小、文字大”，固定偏移还会把内容顶出键帽。系数取宽/高两个
+     * 档位中较小者（短边的百分比），任一方向更小时内容都按它收缩；贴底键盘恒为 1。
+     */
+    val contentScale: Float =
+        if (context.isFloatingEffective()) {
+            floatingContentScale(bakedFloatingWidthPercent, bakedFloatingHeightPercent)
+        } else {
+            1f
+        }
+
     /** 按鍵默認水平間距  */
     internal val horizontalGap: Int =
         intArrayOf(
             selfConfig?.horizontalGap ?: 0,
             theme.generalStyle.horizontalGap,
-        ).firstOrNull { it > 0 }?.let { context.dp(it) } ?: 0
+        ).firstOrNull { it > 0 }?.let { (context.dp(it) * contentScale).roundToInt() } ?: 0
 
     /** 默認鍵寬  */
     private val keyWidth: Int = (allowedWidth * theme.generalStyle.keyWidth / 100).toInt()
@@ -48,7 +89,7 @@ class Keyboard(
         intArrayOf(
             selfConfig?.verticalGap ?: 0,
             theme.generalStyle.verticalGap,
-        ).firstOrNull { it > 0 }?.let { context.dp(it) } ?: 0
+        ).firstOrNull { it > 0 }?.let { (context.dp(it) * contentScale).roundToInt() } ?: 0
 
     /** 默認按鍵圓角半徑  */
     val roundCorner: Float =
@@ -111,20 +152,6 @@ class Keyboard(
     val isLock = selfConfig?.lock ?: false // 切換程序時記憶鍵盤
     val asciiKeyboard: String? = selfConfig?.asciiKeyboard // 英文鍵盤
     val navbar: Boolean = selfConfig?.navbar ?: false // 是否顯示导航栏
-
-    /**
-     * 构造时烘焙进键盘几何的悬浮宽/高档位（%）。
-     *
-     * 网格的像素几何（行高缩放、key.x/y）在构造时按当次档位算死，视图测量高度也来自
-     * 这套几何（KeyboardView.onMeasure 用 [height]，无视父容器规格）——档位真正的
-     * 载体是本对象而不是偏好。InputView 归一缩放时以此为基准：宽度变化触发的
-     * refreshKeyboards 会按当前偏好重新构造本对象（重新烘焙），基准随新对象走、
-     * 缩放立即归一——否则布局已烘焙新档位而 scaleY 仍持旧比例，同一档位被施加两次，
-     * 表现为松手后键盘高度被额外压扁（宽度因 scaleX 恒归一而不受影响）。
-     */
-    val bakedFloatingWidthPercent: Int = AppPrefs.defaultInstance().keyboard.floatingKeyboardWidth.getValue()
-
-    val bakedFloatingHeightPercent: Int = AppPrefs.defaultInstance().keyboard.floatingKeyboardHeight.getValue()
 
     /**
      * 键区高度（含悬浮档位）。悬浮卡片不使用横屏高度变体：卡片的宽度按屏幕短边换算，
