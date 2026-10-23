@@ -198,7 +198,10 @@ class SwitchOptionWindow :
         )
     }
 
-    override fun onRimeSchemaUpdated(schema: SchemaItem) {
+    override fun onRimeSchemaUpdated(
+        schema: SchemaItem,
+        isEngineNotification: Boolean,
+    ) {
         updateSchemaOptionEntries()
     }
 

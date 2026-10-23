@@ -451,7 +451,7 @@ class InputView(
 
     @Keep
     private val oneHandModeListener =
-        PreferenceDelegate.OnChangeListener<Int> { _, _ ->
+        PreferenceDelegate.OnChangeListener<AppPrefs.Keyboard.OneHandMode> { _, _ ->
             ContextCompat.getMainExecutor(service).execute {
                 updateKeyboardSize()
                 keyboardWindow.refreshKeyboards(true)
@@ -1164,23 +1164,27 @@ class InputView(
                 endOfParent()
             }
             preedit.ui.root.setPadding(0, 0, 0, 0)
+            // 悬浮键盘不参与左右留白，工具栏保持卡片整宽。
             inputBar.view.setPadding(0, 0, 0, 0)
+            inputBar.view.updateLayoutParams<LayoutParams> {
+                marginStart = 0
+                marginEnd = 0
+            }
             return
         }
         bottomPaddingSpace.updateLayoutParams {
             height = keyboardBottomPaddingPx
         }
 
-        // 0 normal, 1 left-hand, 2 right-hand
         val state = oneHandMode.getValue()
         val isPortrait = !context.resources.configuration.isLandscape()
 
-        val leftSidePadding = if (isPortrait && state == 2) {
+        val leftSidePadding = if (isPortrait && state == AppPrefs.Keyboard.OneHandMode.RIGHT) {
             theme.generalStyle.keyboardPaddingLeft.takeIf { it > 0 }?.let { dp(it) } ?: keyboardSidePaddingPx
         } else {
             keyboardSidePaddingPx
         }
-        val rightSidePadding = if (isPortrait && state == 1) {
+        val rightSidePadding = if (isPortrait && state == AppPrefs.Keyboard.OneHandMode.LEFT) {
             theme.generalStyle.keyboardPaddingRight.takeIf { it > 0 }?.let { dp(it) } ?: keyboardSidePaddingPx
         } else {
             keyboardSidePaddingPx
@@ -1196,6 +1200,10 @@ class InputView(
                 endToStart = unset
                 startOfParent()
                 endOfParent()
+            }
+            inputBar.view.updateLayoutParams<LayoutParams> {
+                marginStart = 0
+                marginEnd = 0
             }
         } else {
             leftPaddingSpace.visibility = View.VISIBLE
@@ -1214,7 +1222,13 @@ class InputView(
             }
         }
         preedit.ui.root.setPadding(leftSidePadding, 0, rightSidePadding, 0)
-        inputBar.view.setPadding(leftSidePadding, 0, rightSidePadding, 0)
+        // 工具栏按同样的左右留白收窄（用 margin 而不是 padding，背景也一起收），
+        // 否则整宽的工具栏会比预编辑和键盘都长。悬浮模式已在上面清零。
+        inputBar.view.setPadding(0, 0, 0, 0)
+        inputBar.view.updateLayoutParams<LayoutParams> {
+            marginStart = leftSidePadding
+            marginEnd = rightSidePadding
+        }
     }
 
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
@@ -1245,7 +1259,7 @@ class InputView(
     override fun handleRimeMessage(it: RimeMessage<*>) {
         when (it) {
             is RimeMessage.SchemaMessage -> {
-                broadcaster.onRimeSchemaUpdated(it.data)
+                broadcaster.onRimeSchemaUpdated(it.data, it.isEngineNotification)
 
                 windowManager.attachWindow(KeyboardWindow)
             }

@@ -46,8 +46,11 @@ class InputBroadcaster : InputBroadcastReceiver {
         receivers.forEach { it.onSelectionUpdate(start, end) }
     }
 
-    override fun onRimeSchemaUpdated(schema: SchemaItem) {
-        receivers.forEach { it.onRimeSchemaUpdated(schema) }
+    override fun onRimeSchemaUpdated(
+        schema: SchemaItem,
+        isEngineNotification: Boolean,
+    ) {
+        receivers.forEach { it.onRimeSchemaUpdated(schema, isEngineNotification) }
     }
 
     override fun onRimeOptionUpdated(value: RimeMessage.OptionMessage.Data) {

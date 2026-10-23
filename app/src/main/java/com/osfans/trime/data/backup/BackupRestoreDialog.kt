@@ -15,7 +15,6 @@ import androidx.lifecycle.lifecycleScope
 import com.osfans.trime.R
 import com.osfans.trime.ui.common.materialAlertDialogBuilder
 import com.osfans.trime.ui.common.withLoadingDialog
-import com.osfans.trime.util.getFileFromUri
 import com.osfans.trime.util.toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -165,19 +164,17 @@ class BackupRestoreDialog(private val fragment: Fragment) {
         // Use withLoadingDialog with 0 threshold to show immediately
         fragment.lifecycleScope.withLoadingDialog(context, threshold = 0L) {
             try {
-                val file = withContext(Dispatchers.IO) {
-                    context.getFileFromUri(uri)
+                val backupData = withContext(Dispatchers.IO) {
+                    val stream = context.contentResolver.openInputStream(uri)
+                        ?: return@withContext null
+                    BackupManager.loadBackupFromStream(stream).getOrThrow()
                 }
 
-                if (file == null || !file.exists()) {
+                if (backupData == null) {
                     withContext(Dispatchers.Main) {
                         context.toast(R.string.backup_file_invalid)
                     }
                     return@withLoadingDialog
-                }
-
-                val backupData = withContext(Dispatchers.IO) {
-                    BackupManager.loadBackupFromFile(file).getOrThrow()
                 }
 
                 if (backupData.version > BackupData.CURRENT_VERSION) {

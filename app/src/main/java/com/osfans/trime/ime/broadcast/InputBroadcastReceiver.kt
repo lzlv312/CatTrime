@@ -18,7 +18,7 @@ interface InputBroadcastReceiver {
 
     fun onSelectionUpdate(start: Int, end: Int) {}
 
-    fun onRimeSchemaUpdated(schema: SchemaItem) {}
+    fun onRimeSchemaUpdated(schema: SchemaItem, isEngineNotification: Boolean) {}
 
     fun onRimeOptionUpdated(value: RimeMessage.OptionMessage.Data) {}
 

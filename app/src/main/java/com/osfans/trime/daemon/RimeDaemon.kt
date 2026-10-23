@@ -15,7 +15,6 @@ import com.osfans.trime.TrimeApplication
 import com.osfans.trime.core.CompositionProto
 import com.osfans.trime.core.Rime
 import com.osfans.trime.core.RimeApi
-import com.osfans.trime.core.RimeConfig
 import com.osfans.trime.core.RimeLifecycle
 import com.osfans.trime.core.RimeLifecycleObserver
 import com.osfans.trime.core.RimeMessage
@@ -30,17 +29,19 @@ import com.osfans.trime.util.readText
 import com.osfans.trime.util.subprocess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import splitties.systemservices.notificationManager
 import timber.log.Timber
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Manage the singleton instance of [Rime]
@@ -59,9 +60,27 @@ import kotlin.time.Duration.Companion.minutes
 object RimeDaemon {
     private val DEPLOY_WAKE_LOCK_TIMEOUT = 20.minutes
 
+    private val RESTORE_OPTIONS_TIMEOUT = 10.seconds
+
     private val realRime by lazy { Rime() }
 
-    private val rimeImpl by lazy { object : RimeApi by realRime {} }
+    private val rimeImpl by lazy {
+        object : RimeApi by realRime {
+            // These calls tear down the native session, so the next engine is
+            // created with the schema resets and needs the saved options again.
+            override suspend fun deploy() {
+                realRime.deploy()
+                requestOptionRestore()
+            }
+
+            override suspend fun updateConfig() {
+                realRime.updateConfig()
+                requestOptionRestore()
+            }
+
+            override suspend fun syncUserData(): Boolean = realRime.syncUserData().also { requestOptionRestore() }
+        }
+    }
 
     private val sessions = mutableMapOf<String, RimeSession>()
 
@@ -102,7 +121,11 @@ object RimeDaemon {
         if (deployWakeLock.isHeld) deployWakeLock.release()
     }
 
-    private val loadOptionsMutex = Mutex()
+    /**
+     * Pending requests to re-apply saved options. Conflated so a burst of
+     * triggers collapses into a single restore instead of one job per event.
+     */
+    private val restoreRequests = Channel<Unit>(Channel.CONFLATED)
 
     private fun establish(name: String) = object : RimeSession {
         private inline fun <T> ensureEstablished(block: () -> T) = if (name in establishedNames) {
@@ -184,53 +207,26 @@ object RimeDaemon {
     private const val MESSAGE_ID = 2331
     private var restartId = 0
 
-    /**
-     * 缓存的save_options
-     */
-    private var cachedSaveOptions: Set<String>? = null
+    private fun requestOptionRestore() {
+        restoreRequests.trySend(Unit)
+    }
 
-    /**
-     * 缓存的用户配置值
-     */
-    private var cachedOptionValues: Map<String, Boolean>? = null
-
-    /**
-     * 配置是否已失效
-     */
-    private var configCacheInvalidated = true
-
-    /**
-     * 加载保存的选项
-     */
-    private suspend fun loadSavedOptions() {
-        loadOptionsMutex.withLock {
-            realRime.lifecycle.whenReady {
-                if (configCacheInvalidated) {
-                    val saveOptions = RimeConfig.openConfig("default").use {
-                        it.getList("switcher/save_options", RimeConfig::getString).toSet()
-                    }
-                    cachedSaveOptions = saveOptions
-
-                    if (saveOptions.isNotEmpty()) {
-                        val userOptionValues = mutableMapOf<String, Boolean>()
-                        RimeConfig.openUserConfig("user").use { userConfig ->
-                            for (option in saveOptions) {
-                                val savedValue = userConfig.getBool("var/option/$option")
-                                if (savedValue != null) {
-                                    userOptionValues[option] = savedValue
-                                }
-                            }
-                        }
-                        cachedOptionValues = userOptionValues
-                    }
-
-                    configCacheInvalidated = false
+    private suspend fun restoreSavedOptions() {
+        if (!realRime.isReady) return
+        try {
+            // A job dropped by a concurrent RimeDispatcher.stop() would never
+            // resume, so bound the wait to keep the worker alive.
+            val restored =
+                withTimeoutOrNull(RESTORE_OPTIONS_TIMEOUT) {
+                    realRime.restoreSavedOptions()
                 }
-
-                cachedOptionValues?.forEach { (option, value) ->
-                    realRime.setRuntimeOption(option, value)
-                }
+            if (restored == null) {
+                Timber.w("Restoring saved options timed out")
             }
+        } catch (e: IllegalStateException) {
+            // Rime stopped between the readiness check and the dispatch; the
+            // next READY event will request another restore.
+            Timber.w(e, "Skip restoring saved options")
         }
     }
 
@@ -240,22 +236,14 @@ object RimeDaemon {
             appContext.getString(R.string.rime_daemon),
         )
         TrimeApplication.getInstance().coroutineScope.launch {
+            restoreRequests.consumeEach { restoreSavedOptions() }
+        }
+        TrimeApplication.getInstance().coroutineScope.launch {
             realRime.messageFlow.collect {
                 handleRimeMessage(it)
-
-                when (it) {
-                    is RimeMessage.DeployMessage -> {
-                        if (it.data == RimeMessage.DeployMessage.State.Start) {
-                            configCacheInvalidated = true
-                        }
-                        if (it.data == RimeMessage.DeployMessage.State.Success) {
-                            launch { loadSavedOptions() }
-                        }
-                    }
-                    is RimeMessage.SchemaMessage -> {
-                        launch { loadSavedOptions() }
-                    }
-                    else -> {}
+                // Applying a schema resets its options again.
+                if (it is RimeMessage.SchemaMessage) {
+                    requestOptionRestore()
                 }
             }
         }
@@ -263,7 +251,7 @@ object RimeDaemon {
         realRime.lifecycle.addObserver(
             RimeLifecycleObserver { state ->
                 if (state == RimeLifecycle.State.READY) {
-                    TrimeApplication.getInstance().coroutineScope.launch { loadSavedOptions() }
+                    requestOptionRestore()
                 }
             },
         )

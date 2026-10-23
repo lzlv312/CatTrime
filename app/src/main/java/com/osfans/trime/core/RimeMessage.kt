@@ -31,11 +31,16 @@ sealed class RimeMessage<T>(
 
     data class SchemaMessage(
         override val data: SchemaItem,
+        /**
+         * true 表示来自 librime 的 "schema" 通知（引擎确实应用了新方案）；
+         * false 表示由状态差异补发的消息，例如部署/重启后引擎恢复方案时的瞬时状态。
+         */
+        val isEngineNotification: Boolean = true,
     ) : RimeMessage<SchemaItem>(data) {
         override val messageType: MessageType
             get() = MessageType.Schema
 
-        override fun toString() = "SchemaMessage(id=${data.id}, name=${data.name})"
+        override fun toString() = "SchemaMessage(id=${data.id}, name=${data.name}, native=$isEngineNotification)"
     }
 
     data class OptionMessage(

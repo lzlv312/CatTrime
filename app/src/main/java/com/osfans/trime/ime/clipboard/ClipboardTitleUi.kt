@@ -8,6 +8,7 @@ package com.osfans.trime.ime.clipboard
 import android.content.Context
 import com.osfans.trime.R
 import com.osfans.trime.data.theme.Theme
+import com.osfans.trime.data.theme.model.ToolBar
 import com.osfans.trime.ime.bar.ui.ToolButton
 import com.osfans.trime.ime.core.InputTabLayout
 import splitties.dimensions.dp
@@ -27,7 +28,11 @@ class ClipboardTitleUi(override val ctx: Context, private val theme: Theme) : Ui
 
     val returnAfterPasteButton = ToolButton(ctx, R.drawable.ic_baseline_push_pin_24)
 
-    val hideKeyboardButton = ToolButton(ctx, R.drawable.ic_baseline_arrow_drop_down_24)
+    val hideKeyboardButton =
+        ToolButton(
+            ctx,
+            ToolBar.Button(foreground = ToolBar.Button.Foreground(style = "ic@keyboard_close")),
+        )
 
     private val size = theme.generalStyle.run { candidateViewHeight + commentHeight }
 

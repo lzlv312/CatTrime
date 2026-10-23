@@ -371,7 +371,8 @@ class CommonKeyboardActionListener {
 
             private fun switchOneHandMode() {
                 val preference = prefs.keyboard.oneHandMode
-                preference.setValue((preference.getValue() + 1) % 3)
+                val modes = AppPrefs.Keyboard.OneHandMode.entries
+                preference.setValue(modes[(modes.indexOf(preference.getValue()) + 1) % modes.size])
             }
 
             private fun handleSettings(action: KeyAction) {

@@ -247,6 +247,29 @@ class Rime :
         getRimeOption(option)
     }
 
+    /**
+     * Re-apply the options saved in the user config.
+     *
+     * librime restores `switcher/save_options` before it applies the schema
+     * `reset` values, so the resets win when the engine is (re)created. Call
+     * this after the engine has been created or a schema has been applied.
+     */
+    suspend fun restoreSavedOptions() = withRimeContext {
+        val saveOptions = RimeConfig.openConfig("default").use {
+            it.getList("switcher/save_options", RimeConfig::getString)
+        }
+        val savedOptions = RimeConfig.openUserConfig("user").use { userConfig ->
+            saveOptions.mapNotNull { option ->
+                userConfig.getBool("var/option/$option")?.let { option to it }
+            }
+        }
+        for ((option, value) in savedOptions) {
+            if (getRimeOption(option) != value) {
+                setRimeOption(option, value)
+            }
+        }
+    }
+
     override suspend fun setNullInputType(value: Boolean) = withRimeContext {
         isNullInputType = value
     }
@@ -381,6 +404,7 @@ class Rime :
             messageFlow_.tryEmit(
                 RimeMessage.SchemaMessage(
                     SchemaItem(schemaId, schemaName),
+                    isEngineNotification = false,
                 ),
             )
         }

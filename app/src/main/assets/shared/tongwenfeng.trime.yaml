@@ -51,6 +51,8 @@ style:
   latin_font: latin.ttf #西文本体
   keyboard_height: 250 #锁定键盘高度，避免切换时键盘高度变化而造成闪烁
   keyboard_height_land: 200 #锁定横屏下键盘高度，避免切换时键盘高度变化而造成闪烁
+  keyboard_padding_left: 40 #竖屏屏模式下，右手键盘布局，屏幕左侧与键盘的距离
+  keyboard_padding_right: 40 #竖屏屏模式下，左手键盘布局，屏幕右侧与键盘的距离
   popup_font: latin.ttf #按键提示字体
   popup_width: 38 #按键提示宽度
   popup_height: 48 #按键提示高度
